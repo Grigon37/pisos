@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="ca">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cerca de pisos</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --bg:#FBFAF6; --surface:#FFFFFF; --surface-alt:#F4F0E6;
+    --ink:#2A2620; --ink-muted:#6E6656;
+    --accent:#A9832F; --accent-ink:#7C5D1B; --accent-soft:#F1E8D3;
+    --line:#E8E1D2;
+    --ok:#4E7C5A; --ok-soft:#E7EFE6;
+    --warn:#A8781F; --warn-soft:#F6ECD5;
+    --bad:#AD5240; --bad-soft:#F4E3DD;
+    --no:#9C9484;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#1A1712; --surface:#241F18; --surface-alt:#2C261C;
+      --ink:#EDE7D8; --ink-muted:#B4AA90;
+      --accent:#CCA95B; --accent-ink:#E4D19A; --accent-soft:#382E18;
+      --line:#3B3327;
+      --ok:#82B08C; --ok-soft:#25301F;
+      --warn:#D7A857; --warn-soft:#3A2E15;
+      --bad:#E1917E; --bad-soft:#3A241D;
+      --no:#6E6656;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#1A1712; --surface:#241F18; --surface-alt:#2C261C;
+    --ink:#EDE7D8; --ink-muted:#B4AA90;
+    --accent:#CCA95B; --accent-ink:#E4D19A; --accent-soft:#382E18;
+    --line:#3B3327;
+    --ok:#82B08C; --ok-soft:#25301F;
+    --warn:#D7A857; --warn-soft:#3A2E15;
+    --bad:#E1917E; --bad-soft:#3A241D;
+    --no:#6E6656;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:'IBM Plex Sans',system-ui,sans-serif;line-height:1.5;}
+  .wrap{max-width:960px;margin:0 auto;padding:0 24px 96px;}
+  code,.mono{font-family:'IBM Plex Mono',ui-monospace,monospace;}
+
+  header.page{padding:44px 0 24px;border-bottom:1px solid var(--line);position:relative;}
+  .eyebrow{display:inline-flex;align-items:center;gap:8px;font-family:'IBM Plex Mono',monospace;font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent-ink);background:var(--accent-soft);padding:4px 10px;border-radius:5px;margin-bottom:16px;}
+  h1{font-size:clamp(28px,4vw,38px);font-weight:700;margin:0 0 10px;letter-spacing:-0.01em;}
+  .lede{color:var(--ink-muted);font-size:16px;max-width:62ch;margin:0 0 18px;}
+  .meta-row{display:flex;flex-wrap:wrap;gap:8px 18px;font-size:13px;color:var(--ink-muted);}
+  .meta-row b{color:var(--ink);font-weight:600;}
+  .theme-btn{position:absolute;top:44px;right:0;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink-muted);background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:6px 12px;cursor:pointer;}
+  .theme-btn:hover{border-color:var(--accent);color:var(--accent-ink);}
+
+  .toolbar{position:sticky;top:0;z-index:5;background:var(--bg);padding:16px 0;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:12px;}
+  .search-box{display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 14px;}
+  .search-box svg{flex:none;color:var(--ink-muted);}
+  .search-box input{border:none;outline:none;background:transparent;font:inherit;font-size:15px;color:var(--ink);width:100%;}
+  .search-box input::placeholder{color:var(--no);}
+  .chips{display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
+  .chip{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink-muted);background:var(--surface);border:1px solid var(--line);padding:6px 11px;border-radius:999px;cursor:pointer;white-space:nowrap;}
+  .chip:hover{border-color:var(--accent);color:var(--accent-ink);}
+  .chip.active{background:var(--accent-soft);border-color:var(--accent);color:var(--accent-ink);}
+  #countTag{color:var(--ink-muted);font-size:13px;margin-left:auto;}
+  .actions{display:flex;flex-wrap:wrap;gap:8px;}
+  .btn{font-family:inherit;font-size:13px;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:8px;padding:8px 12px;cursor:pointer;}
+  .btn:hover{border-color:var(--accent);color:var(--accent-ink);}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .btn.primary:hover{filter:brightness(1.06);color:#fff;}
+  #saved{align-self:center;font-size:12.5px;color:var(--ok);}
+  .chip:focus-visible,.btn:focus-visible,input:focus-visible,summary:focus-visible,.value:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+
+  .callout{display:flex;gap:12px;border:1px solid var(--line);border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:8px;padding:14px 16px;margin:24px 0 8px;font-size:14px;color:var(--ink);}
+  .callout .tag{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent-ink);flex:none;margin-top:2px;}
+
+  #list{margin-top:20px;}
+  .item{background:var(--surface);border:1px solid var(--line);border-radius:12px;margin-bottom:12px;overflow:hidden;}
+  .item summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:auto 1fr auto auto;align-items:center;gap:14px;padding:14px 16px;}
+  .item summary::-webkit-details-marker{display:none;}
+  .item summary::after{content:"+";font-family:'IBM Plex Mono',monospace;color:var(--ink-muted);font-size:18px;width:20px;text-align:center;}
+  .item[open] summary::after{content:"–";}
+  .price-badge{font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;border-radius:6px;padding:5px 9px;white-space:nowrap;background:var(--surface-alt);color:var(--ink);}
+  .price-badge.b-ok{background:var(--ok-soft);color:var(--ok);}
+  .price-badge.b-warn{background:var(--warn-soft);color:var(--warn);}
+  .price-badge.b-bad{background:var(--bad-soft);color:var(--bad);}
+  .item-name{font-weight:600;font-size:15px;min-width:0;}
+  .item-name .sub{display:block;font-weight:400;color:var(--ink-muted);font-size:12.5px;margin-top:2px;}
+  .status{display:flex;gap:6px;flex:none;flex-wrap:wrap;justify-content:flex-end;max-width:230px;}
+  .pill{font-family:'IBM Plex Mono',monospace;font-size:10.5px;font-weight:600;letter-spacing:.02em;border-radius:5px;padding:3px 6px;color:var(--no);background:var(--surface-alt);white-space:nowrap;}
+  .pill.yes{color:var(--ok);background:var(--ok-soft);}
+  .pill.warn{color:var(--warn);background:var(--warn-soft);}
+  .pill.bad{color:var(--bad);background:var(--bad-soft);}
+
+  .item-body{padding:2px 16px 16px;border-top:1px solid var(--line);}
+  .cols{display:grid;grid-template-columns:1fr;gap:14px;padding-top:14px;}
+  @media(min-width:640px){ .cols{grid-template-columns:1fr 1fr;} }
+  .field.wide{grid-column:1/-1;}
+  .field-label{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 6px;}
+  .value{font-size:13.5px;color:var(--ink);background:var(--surface-alt);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-height:37px;white-space:pre-wrap;word-break:break-word;outline:none;}
+  .value:focus{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft);}
+  .value.derived{opacity:.72;font-family:'IBM Plex Mono',monospace;}
+  .linkrow{display:flex;gap:8px;align-items:flex-start;}
+  .linkrow .value{flex:1;font-size:12.5px;color:var(--accent-ink);}
+  .open-link{flex:none;text-decoration:none;border:1px solid var(--line);border-radius:8px;padding:8px 11px;color:var(--accent-ink);font-family:'IBM Plex Mono',monospace;font-size:13px;}
+  .open-link:hover{border-color:var(--accent);}
+  .open-link.off{opacity:.35;pointer-events:none;}
+  .card-foot{display:flex;justify-content:flex-end;margin-top:14px;}
+  .del{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--bad);background:transparent;border:1px solid var(--line);border-radius:8px;padding:6px 12px;cursor:pointer;}
+  .del:hover{border-color:var(--bad);background:var(--bad-soft);}
+
+  footer.page{margin-top:48px;padding-top:24px;border-top:1px solid var(--line);font-size:13px;color:var(--ink-muted);}
+  footer.page h3{font-size:13px;color:var(--ink);margin:0 0 10px;text-transform:uppercase;letter-spacing:.06em;font-family:'IBM Plex Mono',monospace;font-weight:600;}
+  [hidden]{display:none!important;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="page">
+    <button class="theme-btn" id="theme">☾ / ☀</button>
+    <span class="eyebrow">Cerca d'habitatge · compra</span>
+    <h1>Cerca de pisos</h1>
+    <p class="lede">Compra a Barcelona i Badalona. Cada fitxa recull els 20 camps del full <span class="mono">PISOS_CLAUDE</span>. Toca una fitxa per desplegar-la i editar-la; els canvis es desen i es comparteixen.</p>
+    <div class="meta-row">
+      <span><b id="stPisos">0</b> pisos</span>
+      <span><b id="stOk">0</b> dins pressupost</span>
+      <span><b id="stFranja">0</b> en franja +15%</span>
+      <span><b>Font:</b> Habitaclia · Idealista</span>
+    </div>
+  </header>
+
+  <div class="toolbar">
+    <div class="search-box">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input id="search" type="text" placeholder="Cerca per carrer, zona, agència…">
+    </div>
+    <div class="chips" id="chips"><span id="countTag"></span></div>
+    <div class="actions">
+      <button class="btn primary" id="add">+ Afegeix pis</button>
+      <button class="btn" id="refresh">↻ Actualitza</button>
+      <button class="btn" id="csv">Exporta CSV</button>
+      <button class="btn" id="reset">Recarrega</button>
+      <span id="saved"></span>
+    </div>
+  </div>
+
+  <div class="callout">
+    <span class="tag">Criteris</span>
+    <div>Filtres durs: <b>&le; 340.000 &euro;</b> (sostre +15% &asymp; 391.000 &euro;), <b>&ge; 70 m&sup2;</b>, <b>&ge; 2 hab.</b>, <b>&ge; 1 bany</b>, sortida exterior (balcó/terrassa) <b>imprescindible</b>.</div>
+  </div>
+
+  <div id="list"></div>
+
+  <footer class="page">
+    <h3>Notes</h3>
+    <p>Preu en verd = dins pressupost (&le; 340.000 &euro;); groc = franja +15% (&le; 391.000 &euro;); vermell = per sobre. El &euro;/m&sup2; es calcula sol a partir de Preu i M2. Dades desades a Supabase: qui obri l'enllaç publicat les veu i pot editar-les. La capçalera 13 («CALEFFACIÓ», amb doble F) es manté igual que al full original.</p>
+  </footer>
+
+</div>
+
+<script>
+const HEADERS=["CIUTAT","ZONA","CARRER","TRANSPORT","PREU","M2","€/m2","HAB.","BALCÓ / TERRASSA","BANYS","PROS","ASCENSOR","CALEFFACIÓ","AIRE ACONDICIONAT","CONTRAS","LINK","APP","AGÈNCIA","CONTACTE","DATA CERCA"];
+const COLS=["ciutat","zona","carrer","transport","preu","m2","eur_m2","hab","balco_terrassa","banys","pros","ascensor","calefaccio","aire_acondicionat","contras","link","app","agencia","contacte","data_cerca"];
+const PREU_I=4,M2_I=5,EURM2_I=6,LINK_I=15,ZONA_I=1,CARRER_I=2,TRANS_I=3,HAB_I=7,EXT_I=8;
+const WIDE=new Set([10,14,15]);
+const STRICT=340000,CEIL=391000;
+
+const SB_URL="https://tvvtiddstqobecmyaunh.supabase.co";
+const SB_KEY="sb_publishable_kJY2f227tgchyEJRo7Tv0Q_92QwO3F8";
+const SB_H={ "apikey":SB_KEY, "Authorization":"Bearer "+SB_KEY, "Content-Type":"application/json" };
+const REST=SB_URL+"/rest/v1/pisos";
+
+let data=[], rowIds=[], zonaFilter='';
+const openLinks=new Set();
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+function priceNum(s){ const d=(s||'').replace(/[^\d]/g,''); return d?parseInt(d,10):NaN; }
+function eurm2(preu,m2){ const p=priceNum(preu),a=parseFloat(String(m2).replace(',','.')); if(!p||!a)return''; return new Intl.NumberFormat('es-ES',{minimumFractionDigits:2,maximumFractionDigits:2}).format(p/a)+' €'; }
+function isUrl(s){ return /^https?:\/\//i.test((s||'').trim()); }
+function budgetInfo(preu){ const n=priceNum(preu); if(isNaN(n))return{cls:'',pill:'',label:''}; if(n<=STRICT)return{cls:'b-ok',pill:'yes',label:'Dins pressupost'}; if(n<=CEIL)return{cls:'b-warn',pill:'warn',label:'+15%'}; return{cls:'b-bad',pill:'bad',label:'Sobre'}; }
+
+function fmtInt(n){ return new Intl.NumberFormat('es-ES').format(n); }
+function fmtEuro(n){ return fmtInt(n)+' €'; }
+function fmtEuro2(n){ return new Intl.NumberFormat('es-ES',{minimumFractionDigits:2,maximumFractionDigits:2}).format(n)+' €'; }
+function isoToDMY(s){ if(!s)return''; const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(s); return m? m[3]+'/'+m[2]+'/'+m[1] : String(s); }
+function dmyToIso(s){ const m=/^(\d{2})\/(\d{2})\/(\d{4})/.exec(s||''); return m? m[3]+'-'+m[2]+'-'+m[1] : null; }
+function intOrNull(s){ const d=String(s==null?'':s).replace(/[^\d]/g,''); return d?parseInt(d,10):null; }
+
+function fromDB(o){
+  const a=new Array(20).fill('');
+  a[0]=o.ciutat||''; a[1]=o.zona||''; a[2]=o.carrer||''; a[3]=o.transport||'';
+  a[4]=o.preu==null?'':fmtEuro(o.preu);
+  a[5]=o.m2==null?'':String(o.m2);
+  a[6]=o.eur_m2==null?'':fmtEuro2(o.eur_m2);
+  a[7]=o.hab==null?'':String(o.hab);
+  a[8]=o.balco_terrassa||'';
+  a[9]=o.banys==null?'':String(o.banys);
+  a[10]=o.pros||''; a[11]=o.ascensor||''; a[12]=o.calefaccio||''; a[13]=o.aire_acondicionat||'';
+  a[14]=o.contras||''; a[15]=o.link||''; a[16]=o.app||''; a[17]=o.agencia||''; a[18]=o.contacte||'';
+  a[19]=isoToDMY(o.data_cerca);
+  return a;
+}
+function toDB(a){
+  const p=intOrNull(a[4]), m=intOrNull(a[5]);
+  return {
+    ciutat:a[0]||null, zona:a[1]||null, carrer:a[2]||null, transport:a[3]||null,
+    preu:p, m2:m, eur_m2:(p&&m)?Math.round(p/m*100)/100:null,
+    hab:intOrNull(a[7]), balco_terrassa:a[8]||null, banys:intOrNull(a[9]),
+    pros:a[10]||null, ascensor:a[11]||null, calefaccio:a[12]||null, aire_acondicionat:a[13]||null,
+    contras:a[14]||null, link:a[15]||null, app:a[16]||null, agencia:a[17]||null, contacte:a[18]||null,
+    data_cerca:dmyToIso(a[19])
+  };
+}
+
+async function sbSelect(){ const r=await fetch(REST+"?select=*&order=id.asc",{headers:SB_H}); if(!r.ok) throw new Error("GET "+r.status+" "+await r.text()); return r.json(); }
+async function sbInsert(obj){ const r=await fetch(REST,{method:"POST",headers:Object.assign({},SB_H,{Prefer:"return=representation"}),body:JSON.stringify(obj)}); if(!r.ok) throw new Error("POST "+r.status+" "+await r.text()); return r.json(); }
+async function sbUpdate(id,obj){ const r=await fetch(REST+"?id=eq."+id,{method:"PATCH",headers:Object.assign({},SB_H,{Prefer:"return=representation"}),body:JSON.stringify(obj)}); if(!r.ok) throw new Error("PATCH "+r.status+" "+await r.text()); return r.json(); }
+async function sbDelete(id){ const r=await fetch(REST+"?id=eq."+id,{method:"DELETE",headers:SB_H}); if(!r.ok) throw new Error("DELETE "+r.status+" "+await r.text()); }
+
+let ft; function flash(m,bad){ const s=document.getElementById('saved'); s.textContent=m; s.style.color=bad?'var(--bad)':'var(--ok)'; clearTimeout(ft); ft=setTimeout(function(){s.textContent='';},2200); }
+
+async function loadFromDB(){ const rows=await sbSelect(); data=rows.map(fromDB); rowIds=rows.map(function(r){return r.id;}); }
+
+async function saveRow(ri){
+  try{ await sbUpdate(rowIds[ri], toDB(data[ri])); flash('Desat'); }
+  catch(e){ flash('Error desant', true); }
+}
+async function deleteRow(ri){
+  const id=rowIds[ri], k=data[ri]&&data[ri][LINK_I];
+  try{ await sbDelete(id); if(k) openLinks.delete(k); data.splice(ri,1); rowIds.splice(ri,1); render(); renderStats(); }
+  catch(e){ flash('Error esborrant', true); }
+}
+
+function buildSummary(row){
+  const bi=budgetInfo(row[PREU_I]);
+  const ext=(row[EXT_I]||'').trim();
+  const em=eurm2(row[PREU_I],row[M2_I]);
+  const sub=[row[ZONA_I],row[TRANS_I],em].filter(Boolean).map(esc).join(' · ');
+  return '<span class="price-badge '+bi.cls+'">'+esc(row[PREU_I]||'—')+'</span>'
+    +'<span class="item-name">'+esc(row[CARRER_I]||'(sense carrer)')+'<span class="sub">'+sub+'</span></span>'
+    +'<span class="status">'
+    +(row[M2_I]?'<span class="pill">'+esc(row[M2_I])+' m²</span>':'')
+    +(row[HAB_I]?'<span class="pill">'+esc(row[HAB_I])+' hab</span>':'')
+    +(ext?'<span class="pill yes">Exterior</span>':'<span class="pill">Sense ext.</span>')
+    +(bi.label?'<span class="pill '+bi.pill+'">'+esc(bi.label)+'</span>':'')
+    +'</span>';
+}
+
+function fieldBlock(row,ci,details,ri){
+  const b=document.createElement('div'); b.className='field'+(WIDE.has(ci)?' wide':'');
+  const lab=document.createElement('p'); lab.className='field-label'; lab.textContent=(ci+1)+' · '+HEADERS[ci]; b.appendChild(lab);
+  if(ci===EURM2_I){
+    const v=document.createElement('div'); v.className='value derived'; v.dataset.role='eurm2';
+    v.textContent=eurm2(row[PREU_I],row[M2_I])||row[ci]||'—'; b.appendChild(v); return b;
+  }
+  if(ci===LINK_I){
+    const rowEl=document.createElement('div'); rowEl.className='linkrow';
+    const v=document.createElement('div'); v.className='value'; v.contentEditable=true; v.textContent=row[ci];
+    const a=document.createElement('a'); a.className='open-link'+(isUrl(row[ci])?'':' off'); a.textContent='↗'; a.target='_blank'; a.rel='noopener'; a.href=isUrl(row[ci])?row[ci]:'#';
+    v.addEventListener('input',function(){ row[ci]=v.textContent; const u=v.textContent.trim(); if(isUrl(u)){a.href=u;a.classList.remove('off');}else{a.classList.add('off');} });
+    v.addEventListener('blur',function(){ updateCard(details,ri); saveRow(ri); });
+    rowEl.appendChild(v); rowEl.appendChild(a); b.appendChild(rowEl); return b;
+  }
+  const v=document.createElement('div'); v.className='value'; v.contentEditable=true; v.textContent=row[ci];
+  v.addEventListener('input',function(){ row[ci]=v.textContent; });
+  v.addEventListener('blur',function(){ updateCard(details,ri); saveRow(ri); renderStats(); });
+  b.appendChild(v); return b;
+}
+
+function updateCard(details,ri){
+  const row=data[ri];
+  details.querySelector('summary').innerHTML=buildSummary(row);
+  const dv=details.querySelector('[data-role="eurm2"]'); if(dv) dv.textContent=eurm2(row[PREU_I],row[M2_I])||'—';
+}
+
+function render(){
+  const list=document.getElementById('list'); list.innerHTML='';
+  data.forEach(function(row,ri){
+    const d=document.createElement('details'); d.className='item';
+    if(openLinks.has(row[LINK_I]) && row[LINK_I]) d.open=true;
+    const s=document.createElement('summary'); s.innerHTML=buildSummary(row); d.appendChild(s);
+    const body=document.createElement('div'); body.className='item-body';
+    const cols=document.createElement('div'); cols.className='cols';
+    HEADERS.forEach(function(_,ci){ cols.appendChild(fieldBlock(row,ci,d,ri)); });
+    body.appendChild(cols);
+    const foot=document.createElement('div'); foot.className='card-foot';
+    const del=document.createElement('button'); del.className='del'; del.textContent='Elimina';
+    del.onclick=function(){ deleteRow(ri); };
+    foot.appendChild(del); body.appendChild(foot); d.appendChild(body);
+    d.addEventListener('toggle',function(){ const k=data[ri]&&data[ri][LINK_I]; if(!k)return; if(d.open)openLinks.add(k); else openLinks.delete(k); });
+    list.appendChild(d);
+  });
+  renderChips(); applyFilter();
+}
+
+function renderChips(){
+  const box=document.getElementById('chips');
+  const tag=document.getElementById('countTag');
+  box.innerHTML='';
+  const zones=Array.from(new Set(data.map(function(r){return r[ZONA_I];}).filter(Boolean)));
+  const all=document.createElement('span'); all.className='chip'+(zonaFilter===''?' active':''); all.textContent='Totes'; all.onclick=function(){ zonaFilter=''; renderChips(); applyFilter(); }; box.appendChild(all);
+  zones.forEach(function(z){ const c=document.createElement('span'); c.className='chip'+(zonaFilter===z?' active':''); c.textContent=z; c.onclick=function(){ zonaFilter=(zonaFilter===z?'':z); renderChips(); applyFilter(); }; box.appendChild(c); });
+  box.appendChild(tag);
+}
+
+function applyFilter(){
+  const q=document.getElementById('search').value.trim().toLowerCase();
+  const items=Array.prototype.slice.call(document.querySelectorAll('.item'));
+  let shown=0;
+  items.forEach(function(it,i){
+    const row=data[i]; if(!row){ it.hidden=true; return; }
+    const okZona=!zonaFilter || row[ZONA_I]===zonaFilter;
+    const okText=!q || it.textContent.toLowerCase().indexOf(q)!==-1;
+    const match=okZona&&okText; it.hidden=!match; if(match)shown++;
+  });
+  document.getElementById('countTag').textContent=(q||zonaFilter)?(shown+' / '+data.length):(data.length+' en total');
+}
+
+function renderStats(){
+  const ok=data.filter(function(r){return priceNum(r[PREU_I])<=STRICT;}).length;
+  const fr=data.filter(function(r){const n=priceNum(r[PREU_I]);return n>STRICT&&n<=CEIL;}).length;
+  document.getElementById('stPisos').textContent=data.length;
+  document.getElementById('stOk').textContent=ok;
+  document.getElementById('stFranja').textContent=fr;
+}
+
+function isEditingInside(){ const el=document.activeElement,l=document.getElementById('list'); return !!(el&&l&&l.contains(el)); }
+async function silentRefresh(){
+  if(isEditingInside())return;
+  try{
+    const rows=await sbSelect();
+    const nd=rows.map(fromDB), ni=rows.map(function(r){return r.id;});
+    if(JSON.stringify(nd)!==JSON.stringify(data)){ data=nd; rowIds=ni; render(); renderStats(); }
+    flash('Sincronitzat');
+  }catch(e){}
+}
+
+document.getElementById('search').addEventListener('input',applyFilter);
+document.getElementById('refresh').onclick=silentRefresh;
+document.getElementById('add').onclick=async function(){
+  const iso=new Date().toISOString().slice(0,10);
+  try{
+    const created=await sbInsert({ciutat:'Barcelona', data_cerca:iso});
+    const o=Array.isArray(created)?created[0]:created;
+    data.push(fromDB(o)); rowIds.push(o.id);
+    render(); renderStats();
+    const last=document.querySelector('#list .item:last-child'); if(last){ last.open=true; const f=last.querySelector('.value[contenteditable]'); if(f)f.focus(); }
+  }catch(e){ flash('Error afegint', true); }
+};
+document.getElementById('reset').onclick=async function(){
+  try{ await loadFromDB(); openLinks.clear(); render(); renderStats(); flash('Recarregat'); }catch(e){ flash('Error recarregant', true); }
+};
+document.getElementById('csv').onclick=function(){
+  const q=function(s){ s=String(s==null?'':s); return /[",\n;]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; };
+  const rows=[HEADERS].concat(data.map(function(r){ const c=r.slice(); c[EURM2_I]=eurm2(r[PREU_I],r[M2_I])||r[EURM2_I]; return c; }));
+  const csv=rows.map(function(r){return r.map(q).join(';');}).join('\n');
+  const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='cerca-de-pisos.csv'; a.click();
+};
+document.getElementById('theme').onclick=function(){
+  const el=document.documentElement;
+  const cur=el.getAttribute('data-theme');
+  const dark=cur?cur==='dark':window.matchMedia('(prefers-color-scheme: dark)').matches;
+  el.setAttribute('data-theme',dark?'light':'dark');
+};
+
+(async function(){
+  try{ await loadFromDB(); render(); renderStats(); }
+  catch(e){
+    document.getElementById('list').innerHTML='<div class="callout" style="border-left-color:var(--bad);background:var(--bad-soft)"><span class="tag" style="color:var(--bad)">Sense connexió</span><div>No s\'ha pogut llegir de Supabase: '+esc(String(e.message||e))+'. Revisa URL/clau/RLS, o potser l\'entorn de l\'artifact bloqueja la connexió externa.</div></div>';
+    renderStats();
+  }
+  setInterval(silentRefresh,15000);
+})();
+</script>
+</body>
+</html>
