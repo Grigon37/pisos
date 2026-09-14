@@ -1,0 +1,34 @@
+name: Cerca de pisos
+
+on:
+  # Execució automàtica: cada dia a les 06:00 UTC (~07:00-08:00 a Barcelona)
+  schedule:
+    - cron: "0 6 * * *"
+  # Execució manual des de la pestanya Actions (botó "Run workflow")
+  workflow_dispatch:
+    inputs:
+      zona:
+        description: "Zona a cercar (bellvitge, santa-eulalia, ... o 'totes')"
+        required: false
+        default: "totes"
+
+jobs:
+  cerca:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar el repo
+        uses: actions/checkout@v4
+
+      - name: Preparar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instal·lar dependències
+        run: pip install requests beautifulsoup4
+
+      - name: Executar la cerca
+        env:
+          # La clau surt del secret del repo, MAI del codi
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python cerca_pisos_habitaclia.py "${{ github.event.inputs.zona || 'totes' }}"
