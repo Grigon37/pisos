@@ -105,6 +105,9 @@
   .open-link{flex:none;text-decoration:none;border:1px solid var(--line);border-radius:8px;padding:8px 11px;color:var(--accent-ink);font-family:'IBM Plex Mono',monospace;font-size:13px;}
   .open-link:hover{border-color:var(--accent);}
   .open-link.off{opacity:.35;pointer-events:none;}
+  .open-link-sm{flex:none;text-decoration:none;border:1px solid var(--line);border-radius:6px;padding:3px 7px;color:var(--accent-ink);font-family:'IBM Plex Mono',monospace;font-size:12px;line-height:1.3;}
+  .open-link-sm:hover{border-color:var(--accent);}
+  .open-link-sm.off{opacity:.35;pointer-events:none;}
   .card-foot{display:flex;justify-content:flex-end;margin-top:14px;}
   .del{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--bad);background:transparent;border:1px solid var(--line);border-radius:8px;padding:6px 12px;cursor:pointer;}
   .del:hover{border-color:var(--bad);background:var(--bad-soft);}
@@ -238,9 +241,12 @@ function buildSummary(row){
   const ext=(row[EXT_I]||'').trim();
   const em=eurm2(row[PREU_I],row[M2_I]);
   const sub=[row[ZONA_I],row[TRANS_I],em].filter(Boolean).map(esc).join(' · ');
+  const link=row[LINK_I]||'';
+  const linkOk=isUrl(link);
   return '<span class="price-badge '+bi.cls+'">'+esc(row[PREU_I]||'—')+'</span>'
     +'<span class="item-name">'+esc(row[CARRER_I]||'(sense carrer)')+'<span class="sub">'+sub+'</span></span>'
     +'<span class="status">'
+    +'<a class="open-link-sm'+(linkOk?'':' off')+'" href="'+(linkOk?esc(link):'#')+'" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Obre l\'enllaç">↗</a>'
     +(row[M2_I]?'<span class="pill">'+esc(row[M2_I])+' m²</span>':'')
     +(row[HAB_I]?'<span class="pill">'+esc(row[HAB_I])+' hab</span>':'')
     +(ext?'<span class="pill yes">Exterior</span>':'<span class="pill">Sense ext.</span>')
