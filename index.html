@@ -135,7 +135,8 @@
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
       <input id="search" type="text" placeholder="Cerca per carrer, zona, agència…">
     </div>
-    <div class="chips" id="chips"><span id="countTag"></span></div>
+    <div class="chips" id="chipsCiutat"></div>
+    <div class="chips" id="chipsZona" hidden></div>
     <div class="actions">
       <button class="btn primary" id="add">+ Afegeix pis</button>
       <button class="btn" id="refresh">↻ Actualitza</button>
@@ -162,7 +163,7 @@
 <script>
 const HEADERS=["CIUTAT","ZONA","CARRER","TRANSPORT","PREU","M2","€/m2","HAB.","BALCÓ / TERRASSA","BANYS","PROS","ASCENSOR","CALEFFACIÓ","AIRE ACONDICIONAT","CONTRAS","LINK","APP","AGÈNCIA","CONTACTE","DATA CERCA"];
 const COLS=["ciutat","zona","carrer","transport","preu","m2","eur_m2","hab","balco_terrassa","banys","pros","ascensor","calefaccio","aire_acondicionat","contras","link","app","agencia","contacte","data_cerca"];
-const PREU_I=4,M2_I=5,EURM2_I=6,LINK_I=15,ZONA_I=1,CARRER_I=2,TRANS_I=3,HAB_I=7,EXT_I=8;
+const PREU_I=4,M2_I=5,EURM2_I=6,LINK_I=15,CIUTAT_I=0,ZONA_I=1,CARRER_I=2,TRANS_I=3,HAB_I=7,EXT_I=8;
 const WIDE=new Set([10,14,15]);
 const STRICT=340000,CEIL=391000;
 
@@ -171,7 +172,7 @@ const SB_KEY="sb_publishable_kJY2f227tgchyEJRo7Tv0Q_92QwO3F8";
 const SB_H={ "apikey":SB_KEY, "Authorization":"Bearer "+SB_KEY, "Content-Type":"application/json" };
 const REST=SB_URL+"/rest/v1/pisos";
 
-let data=[], rowIds=[], zonaFilter='';
+let data=[], rowIds=[], ciutatFilter='', zonaFilter='';
 const openLinks=new Set();
 
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
@@ -295,13 +296,36 @@ function render(){
 }
 
 function renderChips(){
-  const box=document.getElementById('chips');
-  const tag=document.getElementById('countTag');
-  box.innerHTML='';
-  const zones=Array.from(new Set(data.map(function(r){return r[ZONA_I];}).filter(Boolean)));
-  const all=document.createElement('span'); all.className='chip'+(zonaFilter===''?' active':''); all.textContent='Totes'; all.onclick=function(){ zonaFilter=''; renderChips(); applyFilter(); }; box.appendChild(all);
-  zones.forEach(function(z){ const c=document.createElement('span'); c.className='chip'+(zonaFilter===z?' active':''); c.textContent=z; c.onclick=function(){ zonaFilter=(zonaFilter===z?'':z); renderChips(); applyFilter(); }; box.appendChild(c); });
-  box.appendChild(tag);
+  const boxCiutat=document.getElementById('chipsCiutat');
+  const boxZona=document.getElementById('chipsZona');
+  let tag=document.getElementById('countTag');
+  if(tag) tag.remove();
+  if(!tag){ tag=document.createElement('span'); tag.id='countTag'; }
+  boxCiutat.innerHTML='';
+
+  const ciutats=Array.from(new Set(data.map(function(r){return r[CIUTAT_I];}).filter(Boolean)));
+  const allC=document.createElement('span'); allC.className='chip'+(ciutatFilter===''?' active':''); allC.textContent='Totes les poblacions';
+  allC.onclick=function(){ ciutatFilter=''; zonaFilter=''; renderChips(); applyFilter(); };
+  boxCiutat.appendChild(allC);
+  ciutats.forEach(function(c){
+    const chip=document.createElement('span'); chip.className='chip'+(ciutatFilter===c?' active':''); chip.textContent=c;
+    chip.onclick=function(){ ciutatFilter=(ciutatFilter===c?'':c); zonaFilter=''; renderChips(); applyFilter(); };
+    boxCiutat.appendChild(chip);
+  });
+
+  boxZona.innerHTML='';
+  if(ciutatFilter){
+    boxZona.hidden=false;
+    const zones=Array.from(new Set(data.filter(function(r){return r[CIUTAT_I]===ciutatFilter;}).map(function(r){return r[ZONA_I];}).filter(Boolean)));
+    const allZ=document.createElement('span'); allZ.className='chip'+(zonaFilter===''?' active':''); allZ.textContent='Tots els barris';
+    allZ.onclick=function(){ zonaFilter=''; renderChips(); applyFilter(); };
+    boxZona.appendChild(allZ);
+    zones.forEach(function(z){ const c=document.createElement('span'); c.className='chip'+(zonaFilter===z?' active':''); c.textContent=z; c.onclick=function(){ zonaFilter=(zonaFilter===z?'':z); renderChips(); applyFilter(); }; boxZona.appendChild(c); });
+    boxZona.appendChild(tag);
+  } else {
+    boxZona.hidden=true;
+    boxCiutat.appendChild(tag);
+  }
 }
 
 function applyFilter(){
@@ -310,11 +334,12 @@ function applyFilter(){
   let shown=0;
   items.forEach(function(it,i){
     const row=data[i]; if(!row){ it.hidden=true; return; }
+    const okCiutat=!ciutatFilter || row[CIUTAT_I]===ciutatFilter;
     const okZona=!zonaFilter || row[ZONA_I]===zonaFilter;
     const okText=!q || it.textContent.toLowerCase().indexOf(q)!==-1;
-    const match=okZona&&okText; it.hidden=!match; if(match)shown++;
+    const match=okCiutat&&okZona&&okText; it.hidden=!match; if(match)shown++;
   });
-  document.getElementById('countTag').textContent=(q||zonaFilter)?(shown+' / '+data.length):(data.length+' en total');
+  document.getElementById('countTag').textContent=(q||ciutatFilter||zonaFilter)?(shown+' / '+data.length):(data.length+' en total');
 }
 
 function renderStats(){
