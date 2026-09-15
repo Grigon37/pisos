@@ -62,6 +62,8 @@
   .chip{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink-muted);background:var(--surface);border:1px solid var(--line);padding:6px 11px;border-radius:999px;cursor:pointer;white-space:nowrap;}
   .chip:hover{border-color:var(--accent);color:var(--accent-ink);}
   .chip.active{background:var(--accent-soft);border-color:var(--accent);color:var(--accent-ink);}
+  .chip.fav-chip{color:var(--accent-ink);}
+  .chip.fav-chip.active{background:var(--accent);border-color:var(--accent);color:#fff;}
   #countTag{color:var(--ink-muted);font-size:13px;margin-left:auto;}
   .actions{display:flex;flex-wrap:wrap;gap:8px;}
   .btn{font-family:inherit;font-size:13px;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:8px;padding:8px 12px;cursor:pointer;}
@@ -76,10 +78,13 @@
 
   #list{margin-top:20px;}
   .item{background:var(--surface);border:1px solid var(--line);border-radius:12px;margin-bottom:12px;overflow:hidden;}
-  .item summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:auto 1fr auto auto;align-items:center;gap:14px;padding:14px 16px;}
+  .item summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:auto auto 1fr auto auto;align-items:center;gap:14px;padding:14px 16px;}
   .item summary::-webkit-details-marker{display:none;}
   .item summary::after{content:"+";font-family:'IBM Plex Mono',monospace;color:var(--ink-muted);font-size:18px;width:20px;text-align:center;}
   .item[open] summary::after{content:"–";}
+  .fav-btn{flex:none;border:1px solid var(--line);background:var(--surface);color:var(--ink-muted);border-radius:6px;padding:4px 8px;font-size:15px;line-height:1.2;cursor:pointer;}
+  .fav-btn:hover{border-color:var(--accent);color:var(--accent-ink);}
+  .fav-btn.active{background:var(--accent-soft);border-color:var(--accent);color:var(--accent-ink);}
   .price-badge{font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;border-radius:6px;padding:5px 9px;white-space:nowrap;background:var(--surface-alt);color:var(--ink);}
   .price-badge.b-ok{background:var(--ok-soft);color:var(--ok);}
   .price-badge.b-warn{background:var(--warn-soft);color:var(--warn);}
@@ -164,10 +169,10 @@
 </div>
 
 <script>
-const HEADERS=["CIUTAT","ZONA","CARRER","TRANSPORT","PREU","M2","€/m2","HAB.","BALCÓ / TERRASSA","BANYS","PROS","ASCENSOR","CALEFFACIÓ","AIRE ACONDICIONAT","CONTRAS","LINK","APP","AGÈNCIA","CONTACTE","DATA CERCA"];
-const COLS=["ciutat","zona","carrer","transport","preu","m2","eur_m2","hab","balco_terrassa","banys","pros","ascensor","calefaccio","aire_acondicionat","contras","link","app","agencia","contacte","data_cerca"];
-const PREU_I=4,M2_I=5,EURM2_I=6,LINK_I=15,CIUTAT_I=0,ZONA_I=1,CARRER_I=2,TRANS_I=3,HAB_I=7,EXT_I=8;
-const WIDE=new Set([10,14,15]);
+const HEADERS=["CIUTAT","ZONA","CARRER","TRANSPORT","PREU","M2","€/m2","HAB.","BALCÓ / TERRASSA","BANYS","PROS","ASCENSOR","CALEFFACIÓ","AIRE ACONDICIONAT","CONTRAS","LINK","APP","AGÈNCIA","CONTACTE","DATA CERCA","NOTES","PREFERIT"];
+const COLS=["ciutat","zona","carrer","transport","preu","m2","eur_m2","hab","balco_terrassa","banys","pros","ascensor","calefaccio","aire_acondicionat","contras","link","app","agencia","contacte","data_cerca","notes","favorit"];
+const PREU_I=4,M2_I=5,EURM2_I=6,LINK_I=15,CIUTAT_I=0,ZONA_I=1,CARRER_I=2,TRANS_I=3,HAB_I=7,EXT_I=8,NOTES_I=20,FAV_I=21;
+const WIDE=new Set([10,14,15,20]);
 const STRICT=340000,CEIL=391000;
 
 const SB_URL="https://tvvtiddstqobecmyaunh.supabase.co";
@@ -175,7 +180,7 @@ const SB_KEY="sb_publishable_kJY2f227tgchyEJRo7Tv0Q_92QwO3F8";
 const SB_H={ "apikey":SB_KEY, "Authorization":"Bearer "+SB_KEY, "Content-Type":"application/json" };
 const REST=SB_URL+"/rest/v1/pisos";
 
-let data=[], rowIds=[], ciutatFilter='', zonaFilter='';
+let data=[], rowIds=[], ciutatFilter='', zonaFilter='', favoritesFilter=false;
 const openLinks=new Set();
 
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
@@ -192,7 +197,7 @@ function dmyToIso(s){ const m=/^(\d{2})\/(\d{2})\/(\d{4})/.exec(s||''); return m
 function intOrNull(s){ const d=String(s==null?'':s).replace(/[^\d]/g,''); return d?parseInt(d,10):null; }
 
 function fromDB(o){
-  const a=new Array(20).fill('');
+  const a=new Array(22).fill('');
   a[0]=o.ciutat||''; a[1]=o.zona||''; a[2]=o.carrer||''; a[3]=o.transport||'';
   a[4]=o.preu==null?'':fmtEuro(o.preu);
   a[5]=o.m2==null?'':String(o.m2);
@@ -203,6 +208,8 @@ function fromDB(o){
   a[10]=o.pros||''; a[11]=o.ascensor||''; a[12]=o.calefaccio||''; a[13]=o.aire_acondicionat||'';
   a[14]=o.contras||''; a[15]=o.link||''; a[16]=o.app||''; a[17]=o.agencia||''; a[18]=o.contacte||'';
   a[19]=isoToDMY(o.data_cerca);
+  a[20]=o.notes||'';
+  a[21]=o.favorit?'Sí':'';
   return a;
 }
 function toDB(a){
@@ -213,7 +220,8 @@ function toDB(a){
     hab:intOrNull(a[7]), balco_terrassa:a[8]||null, banys:intOrNull(a[9]),
     pros:a[10]||null, ascensor:a[11]||null, calefaccio:a[12]||null, aire_acondicionat:a[13]||null,
     contras:a[14]||null, link:a[15]||null, app:a[16]||null, agencia:a[17]||null, contacte:a[18]||null,
-    data_cerca:dmyToIso(a[19])
+    data_cerca:dmyToIso(a[19]),
+    notes:a[20]||null, favorit:a[21]==='Sí'
   };
 }
 
@@ -236,14 +244,16 @@ async function deleteRow(ri){
   catch(e){ flash('Error esborrant', true); }
 }
 
-function buildSummary(row){
+function buildSummary(row,ri){
   const bi=budgetInfo(row[PREU_I]);
   const ext=(row[EXT_I]||'').trim();
   const em=eurm2(row[PREU_I],row[M2_I]);
   const sub=[row[ZONA_I],row[TRANS_I],em].filter(Boolean).map(esc).join(' · ');
   const link=row[LINK_I]||'';
   const linkOk=isUrl(link);
-  return '<span class="price-badge '+bi.cls+'">'+esc(row[PREU_I]||'—')+'</span>'
+  const isFav=row[FAV_I]==='Sí';
+  return '<button type="button" class="fav-btn'+(isFav?' active':'')+'" onclick="event.stopPropagation(); toggleFavorit('+ri+')" title="'+(isFav?'Treure de preferits':'Afegeix a preferits')+'">'+(isFav?'★':'☆')+'</button>'
+    +'<span class="price-badge '+bi.cls+'">'+esc(row[PREU_I]||'—')+'</span>'
     +'<span class="item-name">'+esc(row[CARRER_I]||'(sense carrer)')+'<span class="sub">'+sub+'</span></span>'
     +'<span class="status">'
     +'<a class="open-link-sm'+(linkOk?'':' off')+'" href="'+(linkOk?esc(link):'#')+'" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Obre l\'enllaç">↗</a>'
@@ -261,6 +271,10 @@ function fieldBlock(row,ci,details,ri){
     const v=document.createElement('div'); v.className='value derived'; v.dataset.role='eurm2';
     v.textContent=eurm2(row[PREU_I],row[M2_I])||row[ci]||'—'; b.appendChild(v); return b;
   }
+  if(ci===FAV_I){
+    const v=document.createElement('div'); v.className='value derived'; v.dataset.role='fav';
+    v.textContent=row[ci]==='Sí'?'★ Sí':'No'; b.appendChild(v); return b;
+  }
   if(ci===LINK_I){
     const rowEl=document.createElement('div'); rowEl.className='linkrow';
     const v=document.createElement('div'); v.className='value'; v.contentEditable=true; v.textContent=row[ci];
@@ -277,8 +291,18 @@ function fieldBlock(row,ci,details,ri){
 
 function updateCard(details,ri){
   const row=data[ri];
-  details.querySelector('summary').innerHTML=buildSummary(row);
+  details.querySelector('summary').innerHTML=buildSummary(row,ri);
   const dv=details.querySelector('[data-role="eurm2"]'); if(dv) dv.textContent=eurm2(row[PREU_I],row[M2_I])||'—';
+  const fv=details.querySelector('[data-role="fav"]'); if(fv) fv.textContent=row[FAV_I]==='Sí'?'★ Sí':'No';
+}
+
+async function toggleFavorit(ri){
+  const row=data[ri]; if(!row)return;
+  row[FAV_I]=row[FAV_I]==='Sí'?'':'Sí';
+  const details=document.querySelectorAll('#list .item')[ri];
+  if(details) updateCard(details,ri);
+  renderChips(); applyFilter();
+  await saveRow(ri);
 }
 
 function render(){
@@ -286,7 +310,7 @@ function render(){
   data.forEach(function(row,ri){
     const d=document.createElement('details'); d.className='item';
     if(openLinks.has(row[LINK_I]) && row[LINK_I]) d.open=true;
-    const s=document.createElement('summary'); s.innerHTML=buildSummary(row); d.appendChild(s);
+    const s=document.createElement('summary'); s.innerHTML=buildSummary(row,ri); d.appendChild(s);
     const body=document.createElement('div'); body.className='item-body';
     const cols=document.createElement('div'); cols.className='cols';
     HEADERS.forEach(function(_,ci){ cols.appendChild(fieldBlock(row,ci,d,ri)); });
@@ -308,6 +332,12 @@ function renderChips(){
   if(tag) tag.remove();
   if(!tag){ tag=document.createElement('span'); tag.id='countTag'; }
   boxCiutat.innerHTML='';
+
+  const nFav=data.filter(function(r){return r[FAV_I]==='Sí';}).length;
+  const favChip=document.createElement('span'); favChip.className='chip fav-chip'+(favoritesFilter?' active':'');
+  favChip.textContent='★ Preferits'+(nFav?' ('+nFav+')':'');
+  favChip.onclick=function(){ favoritesFilter=!favoritesFilter; renderChips(); applyFilter(); };
+  boxCiutat.appendChild(favChip);
 
   const ciutats=Array.from(new Set(data.map(function(r){return r[CIUTAT_I];}).filter(Boolean)));
   const allC=document.createElement('span'); allC.className='chip'+(ciutatFilter===''?' active':''); allC.textContent='Totes les poblacions';
@@ -342,10 +372,11 @@ function applyFilter(){
     const row=data[i]; if(!row){ it.hidden=true; return; }
     const okCiutat=!ciutatFilter || row[CIUTAT_I]===ciutatFilter;
     const okZona=!zonaFilter || row[ZONA_I]===zonaFilter;
+    const okFav=!favoritesFilter || row[FAV_I]==='Sí';
     const okText=!q || it.textContent.toLowerCase().indexOf(q)!==-1;
-    const match=okCiutat&&okZona&&okText; it.hidden=!match; if(match)shown++;
+    const match=okCiutat&&okZona&&okFav&&okText; it.hidden=!match; if(match)shown++;
   });
-  document.getElementById('countTag').textContent=(q||ciutatFilter||zonaFilter)?(shown+' / '+data.length):(data.length+' en total');
+  document.getElementById('countTag').textContent=(q||ciutatFilter||zonaFilter||favoritesFilter)?(shown+' / '+data.length):(data.length+' en total');
 }
 
 function renderStats(){
