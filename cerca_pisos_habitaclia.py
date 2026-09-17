@@ -76,6 +76,23 @@ ZONES = {
         ciutat="Hospitalet de Llobregat", zona="La Torrassa",
         transport="Metro Torrassa (L1)",
         url="https://www.habitaclia.com/pisos-la_torrassa-hospitalet_de_llobregat.htm"),
+    # --- Districte de Sants (Barcelona) ---
+    "sants": dict(
+        ciutat="Barcelona", zona="Sants",
+        transport="Estació de Sants (Renfe/Rodalies, Metro L3/L5)",
+        url="https://www.habitaclia.com/pisos-sants-barcelona.htm"),
+    "sants-badal": dict(
+        ciutat="Barcelona", zona="Sants-Badal",
+        transport="Metro Badal (L5)",
+        url="https://www.habitaclia.com/pisos-sants_badal-barcelona.htm"),
+    "hostafrancs": dict(
+        ciutat="Barcelona", zona="Hostafrancs",
+        transport="Metro Hostafrancs (L1) / Espanya",
+        url="https://www.habitaclia.com/pisos-hostafrancs-barcelona.htm"),
+    "la-bordeta": dict(
+        ciutat="Barcelona", zona="La Bordeta",
+        transport="Metro Mercat Nou (L1)",
+        url="https://www.habitaclia.com/pisos-la_bordeta-barcelona.htm"),
     # Afegeix més barris/municipis copiant el patró (agafa la URL de la 1a pàgina a Habitaclia)
 }
 
