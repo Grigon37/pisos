@@ -93,6 +93,18 @@ ZONES = {
         ciutat="Barcelona", zona="La Bordeta",
         transport="Metro Mercat Nou (L1)",
         url="https://www.habitaclia.com/pisos-la_bordeta-barcelona.htm"),
+    "poble-sec": dict(
+        ciutat="Barcelona", zona="El Poble-sec",
+        transport="Metro Poble-sec (L3) / Paral·lel (L2/L3)",
+        url="https://www.habitaclia.com/pisos-el_poble_sec___parc_de_montjuic-barcelona.htm"),
+    "la-marina-de-port": dict(
+        ciutat="Barcelona", zona="La Marina del Port",
+        transport="Zona Franca; Metro L10 Sud (Foneria/Foc)",
+        url="https://www.habitaclia.com/pisos-la_marina_del_port-barcelona.htm"),
+    "la-marina-prat-vermell": dict(
+        ciutat="Barcelona", zona="La Marina del Prat Vermell",
+        transport="Zona Franca; Metro L10 Sud (Foneria/Zona Franca)",
+        url="https://www.habitaclia.com/pisos-la_marina_del_prat_vermell-barcelona.htm"),
     # Afegeix més barris/municipis copiant el patró (agafa la URL de la 1a pàgina a Habitaclia)
 }
 
