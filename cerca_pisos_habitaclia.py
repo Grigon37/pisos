@@ -46,6 +46,10 @@ PREU_SOSTRE_BAND = 391000     # sostre ampliat +15% (s'accepta, es marca)
 M2_MIN           = 70
 HAB_MIN          = 2
 BANYS_MIN        = 1
+# Cap preu total real pot ser inferior a això: si surt per sota, és senyal que
+# s'ha confós amb un €/m2 (bug detectat: Habitaclia trenca "m²" en "m 2" quan
+# es llegeix el text, fent que els regexos "m2" no el reconeguin com a tal).
+PREU_MIN_REALISTA = 20000
 # Exterior imprescindible: balcó / terrassa / àtic (galería sola NO compta: sol ser interior)
 EXTERIOR_KW = ["balc", "terrass", "terraz", "atic", "àtic", "ático"]
 # Descarta ocupats, llogats amb contracte i lots d'inversor
@@ -130,7 +134,17 @@ def url_pagina(base: str, k: int) -> str:
     return re.sub(r"\.htm$", f"-{k-1}.htm", base)
 
 # ------------------------------------------------------------------ Parseig
-FITXA_RE = re.compile(r"/comprar-[^\"']*-i\d+\.htm")
+# Esquema d'URL de les fitxes a Habitaclia (ha canviat amb el temps: abans
+# "/comprar-...-i<id>.htm", ara simplement "/i<id>.htm").
+FITXA_RE = re.compile(r"^/i\d+\.htm$")
+
+# Espai en blanc "ample": a més del normal, Habitaclia posa un NBSP (\xa0)
+# abans del símbol "€", que \s NO reconeix per defecte a Python.
+WS = r"[\s\xa0]*"
+# Unitat de superfície: pot sortir com a "m2" (dígit 2), com a espai colat
+# ("m 2", quan get_text() separa el contingut d'una etiqueta niada) o com al
+# caràcter real de superíndex "m²".
+M2U = r"m" + WS + r"[2²]"
 
 def parse_pagina(html: str):
     """Retorna una llista de dicts crus (un per anunci de la pàgina)."""
@@ -149,7 +163,7 @@ def parse_pagina(html: str):
             if cont is None:
                 break
             text = cont.get_text(" ", strip=True)
-            if "m2" in text and "€" in text:
+            if ("m2" in text or "m²" in text) and "€" in text:
                 break
         if not cont or "€" not in text:
             continue
@@ -166,18 +180,25 @@ def parse_targeta(t, cfg):
     if any(kw in low for kw in EXCLOU_KW):
         return None
 
-    m2   = a_int((re.search(r"(\d+)\s*m2", text)   or [None, ""])[1] if re.search(r"(\d+)\s*m2", text) else "")
-    hab  = a_int((re.search(r"(\d+)\s*habitaci", low) or [None, ""])[1] if re.search(r"(\d+)\s*habitaci", low) else "")
-    bany = a_int((re.search(r"(\d+)\s*bano",     low) or [None, ""])[1] if re.search(r"(\d+)\s*bano", low) else "")
-    m_eur = re.search(r"([\d.]+)\s*€\s*/\s*m2", text)
+    m2_m = re.search(r"(\d+)\s*" + M2U, text)
+    m2   = a_int(m2_m.group(1)) if m2_m else None
+    # "hab." (abreujat) o "habitacions/habitaciones" (sencer)
+    hab_m = re.search(r"(\d+)\s*hab", low)
+    hab  = a_int(hab_m.group(1)) if hab_m else None
+    bany_m = re.search(r"(\d+)\s*bano", low)
+    bany = a_int(bany_m.group(1)) if bany_m else None
+    m_eur = re.search(r"([\d.]+)" + WS + r"€" + WS + r"/" + WS + M2U, text)
     eur_m2 = float(m_eur.group(1).replace(".", "")) if m_eur else None
 
     # preu = € més gran que NO sigui €/m2
-    text_sense_m2 = re.sub(r"[\d.]+\s*€\s*/\s*m2", " ", text)
-    imports = [int(x.replace(".", "")) for x in re.findall(r"([\d][\d.]{3,})\s*€", text_sense_m2)]
+    text_sense_m2 = re.sub(r"[\d.]+" + WS + r"€" + WS + r"/" + WS + M2U, " ", text)
+    imports = [int(x.replace(".", "")) for x in re.findall(r"([\d][\d.]{3,})" + WS + r"€", text_sense_m2)]
     preu = max(imports) if imports else None
 
     if not (m2 and hab and preu):
+        return None
+    if preu < PREU_MIN_REALISTA:
+        # salvaguarda: probablement un €/m2 mal confós amb el preu total
         return None
     if m2 < M2_MIN or hab < HAB_MIN or preu > PREU_SOSTRE_BAND:
         return None
