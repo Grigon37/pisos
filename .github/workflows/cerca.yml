@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       zona:
-        description: "Zona a cercar (bellvitge, santa-eulalia, ... o 'totes')"
+        description: "Zona a cercar (bellvitge, santa-eulalia, ... o 'totes'). S'aplica a totes dues fonts; si una clau no existeix en una font, simplement no hi troba res."
         required: false
         default: "totes"
 
@@ -27,8 +27,13 @@ jobs:
       - name: Instal·lar dependències
         run: pip install requests beautifulsoup4
 
-      - name: Executar la cerca
+      - name: Executar la cerca a Habitaclia
         env:
           # La clau surt del secret del repo, MAI del codi
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: python cerca_pisos_habitaclia.py "${{ github.event.inputs.zona || 'totes' }}"
+
+      - name: Executar la cerca a Fotocasa
+        env:
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python cerca_pisos_fotocasa.py "${{ github.event.inputs.zona || 'totes' }}"
