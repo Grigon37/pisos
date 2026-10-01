@@ -109,6 +109,61 @@ ZONES = {
         ciutat="Barcelona", zona="La Marina del Prat Vermell",
         transport="Zona Franca; Metro L10 Sud (Foneria/Zona Franca)",
         url="https://www.habitaclia.com/pisos-la_marina_del_prat_vermell-barcelona.htm"),
+    # --- Municipis propers amb bona connexió FGC/Rodalies cap a Barcelona ---
+    # Aquí es cerca el municipi sencer (no un barri concret), per això
+    # ciutat i zona coincideixen.
+    "sant-cugat": dict(
+        ciutat="Sant Cugat del Vallès", zona="Sant Cugat del Vallès",
+        transport="FGC Barcelona-Vallès S1/S2 (~20-25 min a Pl. Catalunya, molt freqüent)",
+        url="https://www.habitaclia.com/pisos-sant_cugat_del_valles.htm"),
+    "rubi": dict(
+        ciutat="Rubí", zona="Rubí",
+        transport="FGC Barcelona-Vallès S1 (~30 min a Pl. Catalunya)",
+        url="https://www.habitaclia.com/pisos-rubi.htm"),
+    "sabadell": dict(
+        ciutat="Sabadell", zona="Sabadell",
+        transport="FGC Barcelona-Vallès S1/S2 (~35-40 min); Rodalies R4",
+        url="https://www.habitaclia.com/pisos-sabadell.htm"),
+    "terrassa": dict(
+        ciutat="Terrassa", zona="Terrassa",
+        transport="FGC Barcelona-Vallès S1 (~45-50 min); Rodalies R4",
+        url="https://www.habitaclia.com/pisos-terrassa.htm"),
+    "molins-de-rei": dict(
+        ciutat="Molins de Rei", zona="Molins de Rei",
+        transport="FGC Llobregat-Anoia (~20 min a Pl. Espanya); Rodalies R4",
+        url="https://www.habitaclia.com/pisos-molins_de_rei.htm"),
+    "sant-feliu-de-llobregat": dict(
+        ciutat="Sant Feliu de Llobregat", zona="Sant Feliu de Llobregat",
+        transport="FGC Llobregat-Anoia (~20 min a Pl. Espanya)",
+        url="https://www.habitaclia.com/pisos-sant_feliu_de_llobregat.htm"),
+    "sant-joan-despi": dict(
+        ciutat="Sant Joan Despí", zona="Sant Joan Despí",
+        transport="FGC Llobregat-Anoia (~15 min); Metro L9/L10 (Can Boixeres)",
+        url="https://www.habitaclia.com/pisos-sant_joan_despi.htm"),
+    "cornella-de-llobregat": dict(
+        ciutat="Cornellà de Llobregat", zona="Cornellà de Llobregat",
+        transport="Metro L5, FGC Llobregat-Anoia i Rodalies R2 (~15-20 min, molt ben connectat)",
+        url="https://www.habitaclia.com/pisos-cornella_de_llobregat.htm"),
+    "esplugues-de-llobregat": dict(
+        ciutat="Esplugues de Llobregat", zona="Esplugues de Llobregat",
+        transport="Metro L5 (Can Vidalet); sense FGC/Rodalies directe, bona xarxa de bus",
+        url="https://www.habitaclia.com/pisos-esplugues_de_llobregat.htm"),
+    "martorell": dict(
+        ciutat="Martorell", zona="Martorell",
+        transport="FGC Llobregat-Anoia (terminal) i Rodalies R4 (~35-40 min)",
+        url="https://www.habitaclia.com/pisos-martorell.htm"),
+    "sant-boi-de-llobregat": dict(
+        ciutat="Sant Boi de Llobregat", zona="Sant Boi de Llobregat",
+        transport="Rodalies R2 Sud (~20-25 min a Barcelona Sants)",
+        url="https://www.habitaclia.com/pisos-sant_boi_de_llobregat.htm"),
+    "sant-vicenc-dels-horts": dict(
+        ciutat="Sant Vicenç dels Horts", zona="Sant Vicenç dels Horts",
+        transport="Rodalies R4 (~25-30 min a Pl. Catalunya)",
+        url="https://www.habitaclia.com/pisos-sant_vicens_dels_horts.htm"),
+    "castellbisbal": dict(
+        ciutat="Castellbisbal", zona="Castellbisbal",
+        transport="FGC Llobregat-Anoia, ramal (~30 min); oferta escassa",
+        url="https://www.habitaclia.com/pisos-castellbisbal.htm"),
     # Afegeix més barris/municipis copiant el patró (agafa la URL de la 1a pàgina a Habitaclia)
 }
 
@@ -134,9 +189,14 @@ def url_pagina(base: str, k: int) -> str:
     return re.sub(r"\.htm$", f"-{k-1}.htm", base)
 
 # ------------------------------------------------------------------ Parseig
-# Esquema d'URL de les fitxes a Habitaclia (ha canviat amb el temps: abans
-# "/comprar-...-i<id>.htm", ara simplement "/i<id>.htm").
-FITXA_RE = re.compile(r"^/i\d+\.htm$")
+# Esquema d'URL de les fitxes a Habitaclia: conviuen almenys dos formats
+# segons el tipus de cerca. Als llistats de barri surt "/i<id>.htm"; als
+# llistats de ciutat sencera (Sabadell, Terrassa...) surt amb UUID:
+# "/comprar/<tipus>/.../<ciutat>/<uuid>/d". Es reconeixen tots dos.
+FITXA_RE = re.compile(
+    r"^/i\d+\.htm$"
+    r"|^/comprar/[^\"']+/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/d$"
+)
 
 # Espai en blanc "ample": a més del normal, Habitaclia posa un NBSP (\xa0)
 # abans del símbol "€", que \s NO reconeix per defecte a Python.
