@@ -328,6 +328,19 @@ def barrer_zona(clau, max_pagines=15):
         time.sleep(1.2)   # educats amb el servidor
     return files
 
+def firmes_existents():
+    """(ciutat, m2, preu) de totes les files ja desades a Supabase -- de
+    qualsevol font (Habitaclia, Fotocasa...). Mateixa ciutat + mateixa
+    superfície + mateix preu exacte és, a la pràctica, el mateix pis
+    anunciat per una altra agència/portal; s'evita duplicar-lo."""
+    try:
+        r = requests.get(REST + "?select=ciutat,m2,preu", headers=SB_HEADERS, timeout=30)
+        r.raise_for_status()
+        return {(row.get("ciutat"), row.get("m2"), row.get("preu")) for row in r.json()}
+    except requests.RequestException as e:
+        print(f"Avís: no s'ha pogut llegir Supabase per deduplicar entre fonts ({e}); es continua sense aquest filtre.")
+        return set()
+
 def inserir(files):
     if not files:
         print("Res a inserir."); return
@@ -351,8 +364,15 @@ def main():
             print(f"Zona desconeguda: {c}"); continue
         print(f"== {c} ==")
         total += barrer_zona(c, max_p)
-    print(f"\nTotal candidats únics: {len(total)}")
-    inserir(total)
+    print(f"\nTotal candidats únics (dins d'aquesta execució): {len(total)}")
+
+    existents = firmes_existents()
+    sense_duplicar = [f for f in total if (f["ciutat"], f["m2"], f["preu"]) not in existents]
+    duplicats = len(total) - len(sense_duplicar)
+    if duplicats:
+        print(f"Descartats {duplicats} per coincidir amb un pis ja existent a la BD (altra font).")
+
+    inserir(sense_duplicar)
 
 if __name__ == "__main__":
     main()
