@@ -56,6 +56,7 @@ TIPUS_CA = {
     "Flat": "Pis", "Duplex": "Dúplex", "Attic": "Àtic",
     "GroundFloorWithGarden": "Planta baixa", "SemidetachedHouse": "Casa aparellada",
     "House_Chalet": "Casa", "Loft": "Loft", "Studio": "Estudi",
+    "CountryHouse": "Casa rural", "Penthouse": "Àtic",
 }
 
 # ------------------------------------------------------------------ Zones
@@ -233,6 +234,40 @@ def parse_targeta(item: dict, cfg: dict):
         "data_cerca": date.today().isoformat(),
     }
 
+# ------------------------------------------------------------------ Xarxa / identitat
+# Els portals canvien el text de l'URL d'un mateix anunci (el carrer a
+# Habitaclia, les característiques a Fotocasa) però no el seu identificador.
+ID_RE = re.compile(
+    r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/d$"   # Habitaclia
+    r"|-i(\d+)\.htm$"                                                     # Habitaclia (format antic)
+    r"|/(\d{6,})/d$"                                                       # Fotocasa
+)
+
+def id_anunci(link):
+    """Identificador estable d'un anunci (o el mateix link si no se'n reconeix cap)."""
+    m = ID_RE.search(link or "")
+    if not m:
+        return link
+    n, g = next((i, g) for i, g in enumerate(m.groups()) if g)
+    return f"{n}:{g}"
+
+def baixa(url, intents=3):
+    """GET amb reintents (espera 20 s, 40 s) per a errors temporals: 429, 5xx o xarxa."""
+    for i in range(intents):
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=25)
+            if r.status_code != 429 and r.status_code < 500:
+                return r
+            motiu, err = f"HTTP {r.status_code}", None
+        except requests.RequestException as e:
+            motiu, err = f"error de xarxa: {e}", e
+        if i < intents - 1:
+            print(f"  ({motiu}; reintent en {20 * (i + 1)} s)")
+            time.sleep(20 * (i + 1))
+    if err:
+        raise err
+    return r
+
 # ------------------------------------------------------------------ Barrido
 def barrer_zona(clau, max_pagines=60):
     cfg = ZONES[clau]
@@ -241,13 +276,15 @@ def barrer_zona(clau, max_pagines=60):
     for k in range(1, max_pagines + 1):
         url = url_pagina(cfg["url"], k)
         try:
-            r = requests.get(url, headers=HEADERS, timeout=25)
+            r = baixa(url)
         except requests.RequestException as e:
             completa = False
-            print(f"  [pàg {k}] error de xarxa: {e}"); break
+            print(f"::warning::{clau}: pàg {k}, error de xarxa ({e}); avui no es desactiva res d'aquesta zona")
+            break
         if r.status_code != 200:
             if k == 1 or r.status_code in (403, 429) or r.status_code >= 500:
                 completa = False
+                print(f"::warning::{clau}: pàg {k}, HTTP {r.status_code}; avui no es desactiva res d'aquesta zona")
             print(f"  [pàg {k}] HTTP {r.status_code} — parem"); break
         data = treu_json(r.text)
         realEstates, total = (extreu_llistat(data) if data else (None, 0))
@@ -288,17 +325,16 @@ def firmes_existents():
     qualsevol font (Habitaclia, Fotocasa...). Mateixa ciutat + mateixa
     superfície + mateix preu exacte és, a la pràctica, el mateix pis
     anunciat per una altra agència/portal; s'evita duplicar-lo.
-    Retorna {(ciutat, m2, preu): link}, o None si no es pot llegir.
-    Pagina de 1000 en 1000 (PostgREST no en torna més per petició)."""
-    out, off = {}, 0
+    Retorna la llista de files {ciutat, m2, preu, link}, o None si no es pot
+    llegir. Pagina de 1000 en 1000 (PostgREST no en torna més per petició)."""
+    out, off = [], 0
     try:
         while True:
             r = requests.get(REST + f"?select=ciutat,m2,preu,link&order=id.asc&limit=1000&offset={off}",
                              headers=SB_HEADERS, timeout=30)
             r.raise_for_status()
             lot = r.json()
-            for row in lot:
-                out.setdefault((row.get("ciutat"), row.get("m2"), row.get("preu")), row.get("link"))
+            out.extend(lot)
             if len(lot) < 1000:
                 return out
             off += 1000
@@ -363,16 +399,28 @@ def main():
     existents = firmes_existents()
     if existents is None:
         sys.exit("ERROR: no s'ha pogut llegir Supabase; no s'insereix ni es desactiva res.")
-    sense_duplicar = []
+    per_firma, per_id = {}, {}
+    for row in existents:
+        per_firma.setdefault((row.get("ciutat"), row.get("m2"), row.get("preu")), row.get("link"))
+        per_id.setdefault(id_anunci(row.get("link")), []).append(row.get("link"))
+    # Un anunci vist avui amb una URL nova manté viva la fila que ja tenim
+    # (amb les seves notes), en lloc de desactivar-la i crear-ne una de nova.
+    for l in list(TOTS_LINKS):
+        TOTS_LINKS.update(per_id.get(id_anunci(l), []))
+    sense_duplicar, mateix_id = [], 0
     for f in total:
-        ja = existents.get((f["ciutat"], f["m2"], f["preu"]))
+        if id_anunci(f["link"]) in per_id:
+            mateix_id += 1           # ja és a la BD (amb aquesta URL o una d'anterior)
+            continue
+        ja = per_firma.get((f["ciutat"], f["m2"], f["preu"]))
         if ja:
-            TOTS_LINKS.add(ja)   # el pis ja desat (potser d'una altra font/URL) continua viu
+            TOTS_LINKS.add(ja)       # mateix pis d'una altra font: la fila desada continua viva
         else:
             sense_duplicar.append(f)
-    duplicats = len(total) - len(sense_duplicar)
+    duplicats = len(total) - len(sense_duplicar) - mateix_id
+    print(f"Ja eren a la BD: {mateix_id}.")
     if duplicats:
-        print(f"Descartats {duplicats} per coincidir amb un pis ja existent a la BD.")
+        print(f"Descartats {duplicats} per coincidir (ciutat+m2+preu) amb un pis d'una altra font.")
 
     if not TOTS_LINKS:
         sys.exit("ERROR: 0 anuncis llegits en totes les zones (bloqueig o canvi de web?).")

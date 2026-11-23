@@ -96,6 +96,7 @@
   .pill.yes{color:var(--ok);background:var(--ok-soft);}
   .pill.warn{color:var(--warn);background:var(--warn-soft);}
   .pill.bad{color:var(--bad);background:var(--bad-soft);}
+  .pill.nou{color:var(--accent);background:var(--accent-soft);}
 
   .item-body{padding:2px 16px 16px;border-top:1px solid var(--line);}
   .cols{display:grid;grid-template-columns:1fr;gap:14px;padding-top:14px;}
@@ -227,15 +228,18 @@ function toDB(a){
 
 async function sbSelect(){
   const PAGE=1000;
-  let rows=[], from=0;
+  let rows=[], last=null;
   while(true){
-    const r=await fetch(REST+"?select=*&actiu=eq.true&descartat=is.false&order=creat_el.desc,id.desc&limit="+PAGE+"&offset="+from,{headers:SB_H});
+    // paginació per id (no per offset): estable encara que el scraper insereixi mentre es llegeix
+    const r=await fetch(REST+"?select=*&actiu=eq.true&descartat=is.false&order=id.desc&limit="+PAGE+(last===null?"":"&id=lt."+last),{headers:SB_H});
     if(!r.ok) throw new Error("GET "+r.status+" "+await r.text());
     const batch=await r.json();
     rows=rows.concat(batch);
     if(batch.length<PAGE) break;
-    from+=PAGE;
+    last=batch[batch.length-1].id;
   }
+  // els més nous primer
+  rows.sort(function(a,b){ return (Date.parse(b.creat_el)||0)-(Date.parse(a.creat_el)||0) || b.id-a.id; });
   return rows;
 }
 async function sbInsert(obj){ const r=await fetch(REST,{method:"POST",headers:Object.assign({},SB_H,{Prefer:"return=representation"}),body:JSON.stringify(obj)}); if(!r.ok) throw new Error("POST "+r.status+" "+await r.text()); return r.json(); }
@@ -274,7 +278,7 @@ function buildSummary(row,ri){
     +(row[M2_I]?'<span class="pill">'+esc(row[M2_I])+' m²</span>':'')
     +(row[HAB_I]?'<span class="pill">'+esc(row[HAB_I])+' hab</span>':'')
     +(ext?'<span class="pill yes">Exterior</span>':'<span class="pill">Sense ext.</span>')
-    +(nousSet.has(rowIds[ri])?'<span class="pill yes">Nou</span>':'')
+    +(nousSet.has(rowIds[ri])?'<span class="pill nou">Nou</span>':'')
     +(bi.label?'<span class="pill '+bi.pill+'">'+esc(bi.label)+'</span>':'')
     +'</span>';
 }
@@ -326,15 +330,21 @@ function render(){
     const d=document.createElement('details'); d.className='item';
     if(openLinks.has(row[LINK_I]) && row[LINK_I]) d.open=true;
     const s=document.createElement('summary'); s.innerHTML=buildSummary(row,ri); d.appendChild(s);
-    const body=document.createElement('div'); body.className='item-body';
-    const cols=document.createElement('div'); cols.className='cols';
-    HEADERS.forEach(function(_,ci){ cols.appendChild(fieldBlock(row,ci,d,ri)); });
-    body.appendChild(cols);
-    const foot=document.createElement('div'); foot.className='card-foot';
-    const del=document.createElement('button'); del.className='del'; del.textContent='Elimina';
-    del.onclick=function(){ deleteRow(ri); };
-    foot.appendChild(del); body.appendChild(foot); d.appendChild(body);
-    d.addEventListener('toggle',function(){ const k=data[ri]&&data[ri][LINK_I]; if(!k)return; if(d.open)openLinks.add(k); else openLinks.delete(k); });
+    // el cos (22 camps editables) només es construeix quan s'obre la fitxa
+    let built=false;
+    d._build=function(){
+      if(built)return; built=true;
+      const body=document.createElement('div'); body.className='item-body';
+      const cols=document.createElement('div'); cols.className='cols';
+      HEADERS.forEach(function(_,ci){ cols.appendChild(fieldBlock(row,ci,d,ri)); });
+      body.appendChild(cols);
+      const foot=document.createElement('div'); foot.className='card-foot';
+      const del=document.createElement('button'); del.className='del'; del.textContent='Elimina';
+      del.onclick=function(){ deleteRow(ri); };
+      foot.appendChild(del); body.appendChild(foot); d.appendChild(body);
+    };
+    if(d.open) d._build();
+    d.addEventListener('toggle',function(){ if(d.open) d._build(); const k=data[ri]&&data[ri][LINK_I]; if(!k)return; if(d.open)openLinks.add(k); else openLinks.delete(k); });
     list.appendChild(d);
   });
   renderChips(); applyFilter();
@@ -388,7 +398,7 @@ function applyFilter(){
     const okCiutat=!ciutatFilter || row[CIUTAT_I]===ciutatFilter;
     const okZona=!zonaFilter || row[ZONA_I]===zonaFilter;
     const okFav=!favoritesFilter || row[FAV_I]==='Sí';
-    const okText=!q || it.textContent.toLowerCase().indexOf(q)!==-1;
+    const okText=!q || (it.firstChild.textContent+' '+row.join(' ')).toLowerCase().indexOf(q)!==-1;
     const match=okCiutat&&okZona&&okFav&&okText; it.hidden=!match; if(match)shown++;
   });
   document.getElementById('countTag').textContent=(q||ciutatFilter||zonaFilter||favoritesFilter)?(shown+' / '+data.length):(data.length+' en total');
@@ -422,7 +432,7 @@ document.getElementById('add').onclick=async function(){
     const o=Array.isArray(created)?created[0]:created;
     data.push(fromDB(o)); rowIds.push(o.id);
     render(); renderStats();
-    const last=document.querySelector('#list .item:last-child'); if(last){ last.open=true; const f=last.querySelector('.value[contenteditable]'); if(f)f.focus(); }
+    const last=document.querySelector('#list .item:last-child'); if(last){ last.open=true; if(last._build) last._build(); const f=last.querySelector('.value[contenteditable]'); if(f)f.focus(); }
   }catch(e){ flash('Error afegint', true); }
 };
 document.getElementById('reset').onclick=async function(){
@@ -448,7 +458,9 @@ document.getElementById('theme').onclick=function(){
     document.getElementById('list').innerHTML='<div class="callout" style="border-left-color:var(--bad);background:var(--bad-soft)"><span class="tag" style="color:var(--bad)">Sense connexió</span><div>No s\'ha pogut llegir de Supabase: '+esc(String(e.message||e))+'. Revisa URL/clau/RLS, o potser l\'entorn de l\'artifact bloqueja la connexió externa.</div></div>';
     renderStats();
   }
-  setInterval(silentRefresh,15000);
+  // refresc cada minut, només amb la pestanya visible (i en tornar-hi)
+  setInterval(function(){ if(!document.hidden) silentRefresh(); },60000);
+  document.addEventListener('visibilitychange',function(){ if(!document.hidden) silentRefresh(); });
 })();
 </script>
 </body>
