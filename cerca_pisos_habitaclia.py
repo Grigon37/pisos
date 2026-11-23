@@ -12,6 +12,8 @@ elimina duplicats (per enllaç i per multi-anunciació) i insereix a Supabase.
     python cerca_pisos_habitaclia.py bellvitge            # un barri
     python cerca_pisos_habitaclia.py bellvitge 11         # limitar pàgines
     python cerca_pisos_habitaclia.py totes                # tots els de sota
+    python cerca_pisos_habitaclia.py auto                 # les que toquen avui (ús diari)
+    SENSE_ESCRIURE=1 python cerca_pisos_habitaclia.py auto  # prova: llegeix però no escriu res
 
 Requereix:  pip install requests beautifulsoup4
 
@@ -20,7 +22,7 @@ Si la primera passada no extreu bé algun camp, ajusta parse_targeta(); és
 exactament el tipus de retoc que Claude Code fa bé iterant sobre el HTML real.
 """
 
-import os, re, sys, time, unicodedata
+import json, os, re, sys, time, unicodedata
 from datetime import date
 import requests
 from bs4 import BeautifulSoup
@@ -61,110 +63,142 @@ EXCLOU_KW = [
 ]
 
 # ------------------------------------------------------------------ Barris
-# Cada entrada: la URL de la 1a pàgina del llistat GENERAL del barri
-# (general, no el filtre "terraza", per no perdre els balcons).
+# Cada entrada: URL base de la 1a pàgina del llistat GENERAL de la zona
+# (sense filtres: url_pagina() hi afegeix preu, m2 i habitacions).
+#   cada   = cada quants dies s'escombra amb l'opció 'auto' (1 = cada dia):
+#            Barcelona i el Barcelonès nord cada dia; la resta cada 2-3 dies
+#            segons la distància a Barcelona.
+#   barris = la zona de cada pis és el seu barri (el que diu el portal). Es
+#            desactiven anuncis d'una ciutat només quan s'han escombrat senceres
+#            TOTES les seves zones amb barris=True (p.ex. els 10 districtes de BCN).
 ZONES = {
+    # --- Barcelona (per districte; la zona de cada pis és el seu barri) i Barcelonès nord: cada dia
+    "bcn-ciutat-vella": dict(
+        ciutat="Barcelona", zona="Ciutat Vella", cada=1, barris=True,
+        transport="Metro L1/L3/L4, Rodalies (Pl. Catalunya)",
+        url="https://www.habitaclia.com/comprar/pisos/barcelona-provincia/barcelona-capital/ciutat-vella/s"),
+    "bcn-eixample": dict(
+        ciutat="Barcelona", zona="Eixample", cada=1, barris=True,
+        transport="Metro L1-L5, Rodalies (Pg. de Gràcia)",
+        url="https://www.habitaclia.com/comprar/pisos/barcelona-provincia/barcelona-capital/eixample/s"),
+    "bcn-sants-montjuic": dict(
+        ciutat="Barcelona", zona="Sants-Montjuïc", cada=1, barris=True,
+        transport="Estació de Sants (Rodalies), Metro L1/L3/L5/L9/L10",
+        url="https://www.habitaclia.com/comprar/pisos/barcelona-provincia/barcelona-capital/sants-montjuic/s"),
+    "bcn-les-corts": dict(
+        ciutat="Barcelona", zona="Les Corts", cada=1, barris=True,
+        transport="Metro L3/L5/L9 Sud, Tram",
+        url="https://www.habitaclia.com/comprar/pisos/barcelona-provincia/barcelona-capital/les-corts/s"),
+    "bcn-sarria-sant-gervasi": dict(
+        ciutat="Barcelona", zona="Sarrià-Sant Gervasi", cada=1, barris=True,
+        transport="FGC S1/S2/L6/L7, Metro L3",
+        url="https://www.habitaclia.com/comprar/pisos/barcelona-provincia/barcelona-capital/sarria-sant-gervasi/s"),
+    "bcn-gracia": dict(
+        ciutat="Barcelona", zona="Gràcia", cada=1, barris=True,
+        transport="Metro L3/L4/L5, FGC (Gràcia)",
+        url="https://www.habitaclia.com/comprar/pisos/barcelona-provincia/barcelona-capital/gracia/s"),
+    "bcn-horta-guinardo": dict(
+        ciutat="Barcelona", zona="Horta-Guinardó", cada=1, barris=True,
+        transport="Metro L3/L4/L5",
+        url="https://www.habitaclia.com/comprar/pisos/barcelona-provincia/barcelona-capital/horta-guinardo/s"),
+    "bcn-nou-barris": dict(
+        ciutat="Barcelona", zona="Nou Barris", cada=1, barris=True,
+        transport="Metro L1/L3/L4/L5/L11",
+        url="https://www.habitaclia.com/comprar/pisos/barcelona-provincia/barcelona-capital/nou-barris/s"),
+    "bcn-sant-andreu": dict(
+        ciutat="Barcelona", zona="Sant Andreu", cada=1, barris=True,
+        transport="Metro L1/L9/L10, Rodalies (Sant Andreu, la Sagrera)",
+        url="https://www.habitaclia.com/comprar/pisos/barcelona-provincia/barcelona-capital/sant-andreu/s"),
+    "bcn-sant-marti": dict(
+        ciutat="Barcelona", zona="Sant Martí", cada=1, barris=True,
+        transport="Metro L1/L2/L4, Rodalies (el Clot)",
+        url="https://www.habitaclia.com/comprar/pisos/barcelona-provincia/barcelona-capital/sant-marti/s"),
+    "badalona": dict(
+        ciutat="Badalona", zona="Badalona", cada=1, barris=True,
+        transport="Metro L2 (Badalona Pompeu Fabra), Rodalies R1",
+        url="https://www.habitaclia.com/comprar/pisos/barcelona-provincia/badalona/s"),
+    "sant-adria": dict(
+        ciutat="Sant Adrià de Besòs", zona="Sant Adrià de Besòs", cada=1, barris=True,
+        transport="Rodalies R1, Metro L2, Tram T5/T6",
+        url="https://www.habitaclia.com/comprar/pisos/barcelona-provincia/sant-adria-de-besos/s"),
+    "montgat": dict(
+        ciutat="Montgat", zona="Montgat", cada=1, barris=True,
+        transport="Rodalies R1 (~20 min a Pl. Catalunya)",
+        url="https://www.habitaclia.com/comprar/pisos/barcelona-provincia/montgat/s"),
+    "santa-coloma": dict(
+        ciutat="Santa Coloma de Gramenet", zona="Santa Coloma de Gramenet", cada=1, barris=True,
+        transport="Metro L1 (Fondo) i L9 Nord",
+        url="https://www.habitaclia.com/comprar/pisos/barcelona-provincia/santa-coloma-de-gramenet/s"),
+    # --- L'Hospitalet (per barri), cada 2 dies
     "bellvitge": dict(
-        ciutat="Hospitalet de Llobregat", zona="Bellvitge",
+        ciutat="Hospitalet de Llobregat", zona="Bellvitge", cada=2,
         transport="Metro Bellvitge (L1)",
-        url="https://www.habitaclia.com/pisos-bellvitge-hospitalet_de_llobregat.htm"),
+        url="https://www.habitaclia.com/comprar/pisos/barcelona-provincia/l-hospitalet-de-llobregat/bellvitge-el-gornal-granvia-lh/bellvitge/s"),
     "santa-eulalia": dict(
-        ciutat="Hospitalet de Llobregat", zona="Santa Eulàlia",
+        ciutat="Hospitalet de Llobregat", zona="Santa Eulàlia", cada=2,
         transport="Metro Santa Eulàlia (L1)",
-        url="https://www.habitaclia.com/pisos-santa_eulalia-hospitalet_de_llobregat.htm"),
+        url="https://www.habitaclia.com/comprar/pisos/barcelona-provincia/l-hospitalet-de-llobregat/santa-eulalia/s"),
     "collblanc": dict(
-        ciutat="Hospitalet de Llobregat", zona="Collblanc",
+        ciutat="Hospitalet de Llobregat", zona="Collblanc", cada=2,
         transport="Metro Collblanc (L5/L9)",
-        url="https://www.habitaclia.com/pisos-collblanc-hospitalet_de_llobregat.htm"),
+        url="https://www.habitaclia.com/comprar/pisos/barcelona-provincia/l-hospitalet-de-llobregat/collblanc-la-torrassa/collblanc/s"),
     "la-torrassa": dict(
-        ciutat="Hospitalet de Llobregat", zona="La Torrassa",
+        ciutat="Hospitalet de Llobregat", zona="La Torrassa", cada=2,
         transport="Metro Torrassa (L1)",
-        url="https://www.habitaclia.com/pisos-la_torrassa-hospitalet_de_llobregat.htm"),
-    # --- Districte de Sants (Barcelona) ---
-    "sants": dict(
-        ciutat="Barcelona", zona="Sants",
-        transport="Estació de Sants (Renfe/Rodalies, Metro L3/L5)",
-        url="https://www.habitaclia.com/pisos-sants-barcelona.htm"),
-    "sants-badal": dict(
-        ciutat="Barcelona", zona="Sants-Badal",
-        transport="Metro Badal (L5)",
-        url="https://www.habitaclia.com/pisos-sants___badal-barcelona.htm"),
-    "hostafrancs": dict(
-        ciutat="Barcelona", zona="Hostafrancs",
-        transport="Metro Hostafrancs (L1) / Espanya",
-        url="https://www.habitaclia.com/pisos-hostafrancs-barcelona.htm"),
-    "la-bordeta": dict(
-        ciutat="Barcelona", zona="La Bordeta",
-        transport="Metro Mercat Nou (L1)",
-        url="https://www.habitaclia.com/pisos-la_bordeta-barcelona.htm"),
-    "poble-sec": dict(
-        ciutat="Barcelona", zona="El Poble-sec",
-        transport="Metro Poble-sec (L3) / Paral·lel (L2/L3)",
-        url="https://www.habitaclia.com/pisos-el_poble_sec___parc_de_montjuic-barcelona.htm"),
-    "la-marina-de-port": dict(
-        ciutat="Barcelona", zona="La Marina del Port",
-        transport="Zona Franca; Metro L10 Sud (Foneria/Foc)",
-        url="https://www.habitaclia.com/pisos-la_marina_del_port-barcelona.htm"),
-    "la-marina-prat-vermell": dict(
-        ciutat="Barcelona", zona="La Marina del Prat Vermell",
-        transport="Zona Franca; Metro L10 Sud (Foneria/Zona Franca)",
-        url="https://www.habitaclia.com/pisos-la_marina_del_prat_vermell-barcelona.htm"),
-    # --- Municipis propers amb bona connexió FGC/Rodalies cap a Barcelona ---
-    # Aquí es cerca el municipi sencer (no un barri concret), per això
-    # ciutat i zona coincideixen.
+        url="https://www.habitaclia.com/comprar/pisos/barcelona-provincia/l-hospitalet-de-llobregat/collblanc-la-torrassa/la-torrassa/s"),
+    # --- Municipis propers: cada 2-3 dies segons la distància
     "sant-cugat": dict(
-        ciutat="Sant Cugat del Vallès", zona="Sant Cugat del Vallès",
-        transport="FGC Barcelona-Vallès S1/S2 (~20-25 min a Pl. Catalunya, molt freqüent)",
-        url="https://www.habitaclia.com/pisos-sant_cugat_del_valles.htm"),
+        ciutat="Sant Cugat del Vallès", zona="Sant Cugat del Vallès", cada=2, barris=True,
+        transport="FGC Barcelona-Vallès S1/S2 (~20-25 min a Pl. Catalunya)",
+        url="https://www.habitaclia.com/comprar/pisos/barcelona-provincia/sant-cugat-del-valles/s"),
     "rubi": dict(
-        ciutat="Rubí", zona="Rubí",
+        ciutat="Rubí", zona="Rubí", cada=3, barris=True,
         transport="FGC Barcelona-Vallès S1 (~30 min a Pl. Catalunya)",
-        url="https://www.habitaclia.com/pisos-rubi.htm"),
+        url="https://www.habitaclia.com/comprar/pisos/barcelona-provincia/rubi/s"),
     "sabadell": dict(
-        ciutat="Sabadell", zona="Sabadell",
+        ciutat="Sabadell", zona="Sabadell", cada=3, barris=True,
         transport="FGC Barcelona-Vallès S1/S2 (~35-40 min); Rodalies R4",
-        url="https://www.habitaclia.com/pisos-sabadell.htm"),
+        url="https://www.habitaclia.com/comprar/pisos/barcelona-provincia/sabadell/s"),
     "terrassa": dict(
-        ciutat="Terrassa", zona="Terrassa",
+        ciutat="Terrassa", zona="Terrassa", cada=3, barris=True,
         transport="FGC Barcelona-Vallès S1 (~45-50 min); Rodalies R4",
-        url="https://www.habitaclia.com/pisos-terrassa.htm"),
+        url="https://www.habitaclia.com/comprar/pisos/barcelona-provincia/terrassa/s"),
     "molins-de-rei": dict(
-        ciutat="Molins de Rei", zona="Molins de Rei",
+        ciutat="Molins de Rei", zona="Molins de Rei", cada=2, barris=True,
         transport="FGC Llobregat-Anoia (~20 min a Pl. Espanya); Rodalies R4",
-        url="https://www.habitaclia.com/pisos-molins_de_rei.htm"),
+        url="https://www.habitaclia.com/comprar/pisos/barcelona-provincia/molins-de-rei/s"),
     "sant-feliu-de-llobregat": dict(
-        ciutat="Sant Feliu de Llobregat", zona="Sant Feliu de Llobregat",
+        ciutat="Sant Feliu de Llobregat", zona="Sant Feliu de Llobregat", cada=2, barris=True,
         transport="FGC Llobregat-Anoia (~20 min a Pl. Espanya)",
-        url="https://www.habitaclia.com/pisos-sant_feliu_de_llobregat.htm"),
+        url="https://www.habitaclia.com/comprar/pisos/barcelona-provincia/sant-feliu-de-llobregat/s"),
     "sant-joan-despi": dict(
-        ciutat="Sant Joan Despí", zona="Sant Joan Despí",
+        ciutat="Sant Joan Despí", zona="Sant Joan Despí", cada=2, barris=True,
         transport="FGC Llobregat-Anoia (~15 min); Metro L9/L10 (Can Boixeres)",
-        url="https://www.habitaclia.com/pisos-sant_joan_despi.htm"),
+        url="https://www.habitaclia.com/comprar/pisos/barcelona-provincia/sant-joan-despi/s"),
     "cornella-de-llobregat": dict(
-        ciutat="Cornellà de Llobregat", zona="Cornellà de Llobregat",
-        transport="Metro L5, FGC Llobregat-Anoia i Rodalies R2 (~15-20 min, molt ben connectat)",
-        url="https://www.habitaclia.com/pisos-cornella_de_llobregat.htm"),
+        ciutat="Cornellà de Llobregat", zona="Cornellà de Llobregat", cada=2, barris=True,
+        transport="Metro L5, FGC Llobregat-Anoia i Rodalies R2 (~15-20 min)",
+        url="https://www.habitaclia.com/comprar/pisos/barcelona-provincia/cornella-de-llobregat/s"),
     "esplugues-de-llobregat": dict(
-        ciutat="Esplugues de Llobregat", zona="Esplugues de Llobregat",
-        transport="Metro L5 (Can Vidalet); sense FGC/Rodalies directe, bona xarxa de bus",
-        url="https://www.habitaclia.com/pisos-esplugues_de_llobregat.htm"),
+        ciutat="Esplugues de Llobregat", zona="Esplugues de Llobregat", cada=2, barris=True,
+        transport="Metro L5 (Can Vidalet); sense FGC/Rodalies directe",
+        url="https://www.habitaclia.com/comprar/pisos/barcelona-provincia/esplugues-de-llobregat/s"),
     "martorell": dict(
-        ciutat="Martorell", zona="Martorell",
+        ciutat="Martorell", zona="Martorell", cada=3, barris=True,
         transport="FGC Llobregat-Anoia (terminal) i Rodalies R4 (~35-40 min)",
-        url="https://www.habitaclia.com/pisos-martorell.htm"),
+        url="https://www.habitaclia.com/comprar/pisos/barcelona-provincia/martorell/s"),
     "sant-boi-de-llobregat": dict(
-        ciutat="Sant Boi de Llobregat", zona="Sant Boi de Llobregat",
+        ciutat="Sant Boi de Llobregat", zona="Sant Boi de Llobregat", cada=2, barris=True,
         transport="Rodalies R2 Sud (~20-25 min a Barcelona Sants)",
-        url="https://www.habitaclia.com/pisos-sant_boi_de_llobregat.htm"),
+        url="https://www.habitaclia.com/comprar/pisos/barcelona-provincia/sant-boi-de-llobregat/s"),
     "sant-vicenc-dels-horts": dict(
-        ciutat="Sant Vicenç dels Horts", zona="Sant Vicenç dels Horts",
+        ciutat="Sant Vicenç dels Horts", zona="Sant Vicenç dels Horts", cada=3, barris=True,
         transport="Rodalies R4 (~25-30 min a Pl. Catalunya)",
-        url="https://www.habitaclia.com/pisos-sant_vicens_dels_horts.htm"),
+        url="https://www.habitaclia.com/comprar/pisos/barcelona-provincia/sant-vicenc-dels-horts/s"),
     "castellbisbal": dict(
-        ciutat="Castellbisbal", zona="Castellbisbal",
+        ciutat="Castellbisbal", zona="Castellbisbal", cada=3, barris=True,
         transport="FGC Llobregat-Anoia, ramal (~30 min); oferta escassa",
-        url="https://www.habitaclia.com/pisos-castellbisbal.htm"),
-    # Afegeix més barris/municipis copiant el patró (agafa la URL de la 1a pàgina a Habitaclia)
+        url="https://www.habitaclia.com/comprar/pisos/barcelona-provincia/castellbisbal/s"),
 }
 
 HEADERS = {
@@ -182,13 +216,32 @@ def a_int(s: str):
     s = re.sub(r"[^\d]", "", s or "")
     return int(s) if s else None
 
+# Filtres aplicats pel servidor (comprovat: p.ex. l'Eixample passa de ~3.600 a
+# ~170 resultats). parse_targeta() continua aplicant els criteris complets.
+FILTRE_URL = f"?maxPrice={PREU_SOSTRE_BAND}&minSurface={M2_MIN}&minRooms={HAB_MIN}&sortType=publicationDate"
+
 def url_pagina(base: str, k: int) -> str:
-    """Pàgina 1 = base; pàgina k = ...-{k}.htm. Habitaclia redirigeix aquestes
-    URL al format nou (/comprar/.../s/k); "-1.htm" torna la pàg 1 repetida i
-    una pàgina fora de rang també torna la pàg 1 (mai una pàgina buida)."""
-    if k == 1:
-        return base
-    return re.sub(r"\.htm$", f"-{k}.htm", base)
+    """Pàgina 1 = base (.../s); pàgina k = base + "/k"; els filtres van al final.
+    Una pàgina fora de rang torna la pàg 1 (mai una pàgina buida)."""
+    return (base if k == 1 else f"{base}/{k}") + FILTRE_URL
+
+def dades_pagina(html: str):
+    """Del JSON que Habitaclia incrusta a la pàgina (window.__INITIAL_PROPS__):
+    ({uuid de l'anunci: barri}, nombre total de pàgines). ({}, None) si no hi és."""
+    m = re.search(r'window\.__INITIAL_PROPS__ = JSON\.parse\("(.*?)"\);', html, re.S)
+    if not m:
+        return {}, None
+    try:
+        res = json.loads(json.loads('"' + m.group(1) + '"'))["initialSearchResultsPage"]["initialSearchContext"]["results"]
+    except (ValueError, KeyError, TypeError):
+        return {}, None
+    barris = {}
+    for it in res.get("items") or []:
+        for capa in ((it.get("summary") or {}).get("location") or {}).get("layers") or []:
+            if capa.get("type") == "neighbourhood" and capa.get("value"):
+                barris[it.get("id")] = capa["value"]
+                break
+    return barris, (res.get("pagination") or {}).get("totalPages")
 
 # ------------------------------------------------------------------ Parseig
 # Esquema d'URL de les fitxes a Habitaclia: conviuen almenys dos formats
@@ -298,6 +351,18 @@ def parse_targeta(t, cfg):
         "data_cerca": date.today().isoformat(),
     }
 
+def dies_retirada(cfg):
+    """Dies sense veure un anunci abans de desactivar-lo: com a mínim 10, i
+    prou per cobrir 4 passades de la zona (si una passada falla, no passa res)."""
+    return max(10, 4 * cfg.get("cada", 1))
+
+def toca_avui(clau):
+    """Rotació sense estat: les zones amb el mateix `cada` s'alternen per ordre
+    de ZONES (1a, 2a, 3a...), així les grans (Terrassa, Sabadell...) no coincideixen."""
+    cada = ZONES[clau].get("cada", 1)
+    mateixes = [c for c, z in ZONES.items() if z.get("cada", 1) == cada]
+    return (date.today().toordinal() + mateixes.index(clau)) % cada == 0
+
 # ------------------------------------------------------------------ Xarxa / identitat
 # Els portals canvien el text de l'URL d'un mateix anunci (el carrer a
 # Habitaclia, les característiques a Fotocasa) però no el seu identificador.
@@ -336,7 +401,7 @@ def baixa(url, intents=3):
 def barrer_zona(clau, max_pagines=60):
     cfg = ZONES[clau]
     files, links_vistos, firmes = [], set(), set()
-    completa, hrefs_zona = True, set()
+    completa, hrefs_zona, total_pag = True, set(), None
     for k in range(1, max_pagines + 1):
         url = url_pagina(cfg["url"], k)
         try:
@@ -361,6 +426,9 @@ def barrer_zona(clau, max_pagines=60):
             # fora de rang: Habitaclia torna una pàgina ja vista => fi del llistat
             print(f"  [pàg {k}] repeteix una pàgina anterior — fi del llistat"); break
         hrefs_zona |= hrefs
+        barris, n_pag = dades_pagina(r.text)
+        if k == 1:
+            total_pag = n_pag
         nous = 0
         for t in targetes:
             # vist = surt al llistat, encara que no passi el filtre (evita falsos "retirats")
@@ -368,6 +436,13 @@ def barrer_zona(clau, max_pagines=60):
             fila = parse_targeta(t, cfg)
             if not fila:
                 continue
+            if cfg.get("barris"):
+                m_id = re.search(r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/d$", t["href"])
+                barri = barris.get(m_id.group(1)) if m_id else None
+                if barri:
+                    fila["zona"] = barri
+                    ZONA_DE[fila["link"]] = barri
+            FIRMES_VISTES.add((fila["ciutat"], fila["m2"], fila["preu"]))
             if fila["link"] in links_vistos:
                 continue
             # anti multi-anunciació: mateixa firma (carrer+m2+preu) => salta
@@ -376,13 +451,15 @@ def barrer_zona(clau, max_pagines=60):
                 continue
             links_vistos.add(fila["link"]); firmes.add(firma)
             files.append(fila); nous += 1
-        print(f"  [pàg {k}] {len(targetes)} anuncis, {nous} nous vàlids")
+        print(f"  [pàg {k}] {len(targetes)} anuncis, {nous} nous vàlids" + (f" (de {total_pag} pàg.)" if total_pag else ""))
+        if total_pag and k >= total_pag:
+            break         # darrera pàgina segons el mateix portal
         time.sleep(1.2)   # educats amb el servidor
     else:
         completa = False
         print("  Avís: zona truncada pel límit de pàgines; no es desactiva res d'aquesta zona.")
     if completa:
-        ZONES_OK.append((cfg["ciutat"], cfg["zona"]))
+        ZONES_OK.append(clau)
     return files
 
 def firmes_existents():
@@ -390,12 +467,12 @@ def firmes_existents():
     qualsevol font (Habitaclia, Fotocasa...). Mateixa ciutat + mateixa
     superfície + mateix preu exacte és, a la pràctica, el mateix pis
     anunciat per una altra agència/portal; s'evita duplicar-lo.
-    Retorna la llista de files {ciutat, m2, preu, link}, o None si no es pot
+    Retorna la llista de files {app, ciutat, zona, m2, preu, link}, o None si no es pot
     llegir. Pagina de 1000 en 1000 (PostgREST no en torna més per petició)."""
     out, off = [], 0
     try:
         while True:
-            r = requests.get(REST + f"?select=ciutat,m2,preu,link&order=id.asc&limit=1000&offset={off}",
+            r = requests.get(REST + f"?select=app,ciutat,zona,m2,preu,link&order=id.asc&limit=1000&offset={off}",
                              headers=SB_HEADERS, timeout=30)
             r.raise_for_status()
             lot = r.json()
@@ -410,9 +487,14 @@ def firmes_existents():
 # ------------------------------------------------- Seguiment d'anuncis actius
 APP_NOM = "Habitaclia"
 TOTS_LINKS = set()   # tots els enllaços vistos en aquesta execució
-ZONES_OK = []        # (ciutat, zona) escombrades senceres i sense errors
+ZONES_OK = []        # claus de les zones escombrades senceres i sense errors
+FIRMES_VISTES = set() # (ciutat, m2, preu) de tots els pisos vàlids vistos, repetits inclosos
+ZONA_DE = {}         # link -> barri (segons el portal) dels pisos de zones amb barris=True
+SIMULACIO = os.environ.get("SENSE_ESCRIURE") == "1"   # prova: llegeix però no escriu a Supabase
 
 def _rpc(nom, payload):
+    if SIMULACIO:
+        return 0
     h = {k: v for k, v in SB_HEADERS.items() if k != "Prefer"}
     try:
         r = requests.post(f"{SUPABASE_URL}/rest/v1/rpc/{nom}", headers=h, json=payload, timeout=60)
@@ -436,9 +518,58 @@ def desactiva_antics(ciutat, zona, dies=10):
     if n:
         print(f"  {ciutat} / {zona}: {n} anuncis desactivats (fa >{dies} dies que no es veuen)")
 
+def desactiva_zones(zones_bd):
+    """Zones normals: desactiva per (ciutat, zona). Zones amb barris=True: per
+    ciutat, i només si TOTES les seves zones s'han escombrat senceres avui;
+    llavors es revisen totes les zones que aquella ciutat té a la BD."""
+    fetes = set(ZONES_OK)
+    for c in ZONES_OK:
+        cfg = ZONES[c]
+        if not cfg.get("barris"):
+            desactiva_antics(cfg["ciutat"], cfg["zona"], dies_retirada(cfg))
+    grups = {}
+    for c, cfg in ZONES.items():
+        if cfg.get("barris"):
+            grups.setdefault(cfg["ciutat"], []).append(c)
+    for ciutat, claus in grups.items():
+        if not all(c in fetes for c in claus):
+            if any(c in fetes for c in claus):
+                print(f"  {ciutat}: no totes les zones s'han escombrat senceres; avui no es desactiva res.")
+            continue
+        dies = max(dies_retirada(ZONES[c]) for c in claus)
+        for zona in sorted(zones_bd.get(ciutat, ())):
+            desactiva_antics(ciutat, zona, dies)
+
+def reetiqueta(canvis):
+    """Posa el barri a pisos ja desats que tenien una zona genèrica o antiga.
+    canvis = {link_desat: barri}. Un PATCH per barri (lots de 40 enllaços)."""
+    if not canvis:
+        return
+    if SIMULACIO:
+        print(f"(simulació) es posaria el barri a {len(canvis)} pisos ja desats."); return
+    per_barri, n = {}, 0
+    for link, barri in canvis.items():
+        per_barri.setdefault(barri, []).append(link)
+    h = {k: v for k, v in SB_HEADERS.items() if k != "Prefer"}
+    for barri, links in per_barri.items():
+        for i in range(0, len(links), 40):
+            lot = links[i:i + 40]
+            filtre = "in.(" + ",".join('"' + l.replace('"', '') + '"' for l in lot) + ")"
+            try:
+                r = requests.patch(REST, params={"link": filtre}, headers=h, json={"zona": barri}, timeout=60)
+                if r.status_code in (200, 204):
+                    n += len(lot)
+                else:
+                    print(f"Avís: no s'ha pogut posar el barri ({r.status_code}): {r.text[:200]}")
+            except requests.RequestException as e:
+                print(f"Avís: no s'ha pogut posar el barri: {e}")
+    print(f"Barri actualitzat a {n} pisos ja desats.")
+
 def inserir(files):
     if not files:
         print("Res a inserir."); return True
+    if SIMULACIO:
+        print(f"(simulació) s'inseririen {len(files)} pisos."); return True
     # on_conflict pel link (índex únic) -> ignora els que ja hi són
     r = requests.post(REST + "?on_conflict=link", headers=SB_HEADERS, json=files, timeout=60)
     if r.status_code in (200, 201):
@@ -450,10 +581,16 @@ def inserir(files):
 # ------------------------------------------------------------------ Main
 def main():
     if len(sys.argv) < 2:
-        sys.exit(f"Zones: {', '.join(ZONES)} | o 'totes'")
+        sys.exit(f"Zones: {', '.join(ZONES)} | o 'totes' | o 'auto' (les que toquen avui)")
     clau = sys.argv[1]
     max_p = int(sys.argv[2]) if len(sys.argv) > 2 else 60
-    claus = list(ZONES) if clau == "totes" else [clau]
+    if clau == "auto":
+        claus = [c for c in ZONES if toca_avui(c)]
+        print(f"Zones d'avui ({len(claus)} de {len(ZONES)}): {', '.join(claus)}\n")
+    elif clau == "totes":
+        claus = list(ZONES)
+    else:
+        claus = [clau]
     total = []
     for c in claus:
         if c not in ZONES:
@@ -465,14 +602,27 @@ def main():
     existents = firmes_existents()
     if existents is None:
         sys.exit("ERROR: no s'ha pogut llegir Supabase; no s'insereix ni es desactiva res.")
-    per_firma, per_id = {}, {}
+    per_firma, per_id, zones_bd = {}, {}, {}
     for row in existents:
         per_firma.setdefault((row.get("ciutat"), row.get("m2"), row.get("preu")), row.get("link"))
-        per_id.setdefault(id_anunci(row.get("link")), []).append(row.get("link"))
+        per_id.setdefault(id_anunci(row.get("link")), []).append((row.get("link"), row.get("zona")))
+        if row.get("app") == APP_NOM and row.get("zona"):
+            zones_bd.setdefault(row.get("ciutat"), set()).add(row["zona"])
     # Un anunci vist avui amb una URL nova manté viva la fila que ja tenim
     # (amb les seves notes), en lloc de desactivar-la i crear-ne una de nova.
     for l in list(TOTS_LINKS):
-        TOTS_LINKS.update(per_id.get(id_anunci(l), []))
+        TOTS_LINKS.update(link for link, _ in per_id.get(id_anunci(l), []))
+    # El mateix pis anunciat amb un altre enllaç (multi-anunciació, una altra
+    # font): la fila desada continua viva encara que el seu enllaç ja no surti.
+    for firma in FIRMES_VISTES:
+        if firma in per_firma:
+            TOTS_LINKS.add(per_firma[firma])
+    # Pisos ja desats amb una zona genèrica (la ciutat, el districte) o antiga: posa'ls el barri.
+    canvis = {}
+    for l, barri in ZONA_DE.items():
+        for link, zona in per_id.get(id_anunci(l), []):
+            if zona != barri:
+                canvis[link] = barri
     sense_duplicar, mateix_id = [], 0
     for f in total:
         if id_anunci(f["link"]) in per_id:
@@ -491,10 +641,10 @@ def main():
     if not TOTS_LINKS:
         sys.exit("ERROR: 0 anuncis llegits en totes les zones (bloqueig o canvi de web?).")
     if marca_vistos(sorted(TOTS_LINKS)):
-        for _ciutat, _zona in ZONES_OK:
-            desactiva_antics(_ciutat, _zona)
+        desactiva_zones(zones_bd)
     else:
         print("Avís: marca_vistos ha fallat; avui no es desactiva res.")
+    reetiqueta(canvis)
 
     if not inserir(sense_duplicar):
         sys.exit(1)

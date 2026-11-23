@@ -9,9 +9,9 @@ on:
   workflow_dispatch:
     inputs:
       zona:
-        description: "Zona a cercar (bellvitge, santa-eulalia, ... o 'totes'). S'aplica a totes dues fonts; si una clau no existeix en una font, simplement no hi troba res."
+        description: "'auto' = les zones que toquen avui (BCN i Barcelonès nord cada dia, la resta cada 2-3 dies); 'totes' = totes; o una clau (bcn-gracia, badalona, terrassa...)."
         required: false
-        default: "totes"
+        default: "auto"
 
 jobs:
   cerca:
@@ -33,11 +33,11 @@ jobs:
         env:
           # La clau surt del secret del repo, MAI del codi
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-        run: python cerca_pisos_habitaclia.py "${{ github.event.inputs.zona || 'totes' }}"
+        run: python cerca_pisos_habitaclia.py "${{ github.event.inputs.zona || 'auto' }}"
 
       - name: Executar la cerca a Fotocasa
         # s'executa encara que Habitaclia hagi fallat (el job queda en vermell igualment)
         if: success() || failure()
         env:
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-        run: python cerca_pisos_fotocasa.py "${{ github.event.inputs.zona || 'totes' }}"
+        run: python cerca_pisos_fotocasa.py "${{ github.event.inputs.zona || 'auto' }}"
