@@ -1,9 +1,10 @@
 name: Cerca de pisos
 
 on:
-  # Execució automàtica: cada dia a les 06:00 UTC (~07:00-08:00 a Barcelona)
+  # Execució automàtica diària. Minut "estrany" a propòsit: GitHub endarrereix
+  # molt els crons a l'hora en punt (amb "0 6" arrencava entre les 10 i les 15 UTC).
   schedule:
-    - cron: "0 6 * * *"
+    - cron: "23 4 * * *"
   # Execució manual des de la pestanya Actions (botó "Run workflow")
   workflow_dispatch:
     inputs:
@@ -15,6 +16,7 @@ on:
 jobs:
   cerca:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Baixar el repo
         uses: actions/checkout@v4
@@ -34,6 +36,8 @@ jobs:
         run: python cerca_pisos_habitaclia.py "${{ github.event.inputs.zona || 'totes' }}"
 
       - name: Executar la cerca a Fotocasa
+        # s'executa encara que Habitaclia hagi fallat (el job queda en vermell igualment)
+        if: success() || failure()
         env:
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: python cerca_pisos_fotocasa.py "${{ github.event.inputs.zona || 'totes' }}"

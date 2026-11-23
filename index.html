@@ -180,7 +180,7 @@ const SB_KEY="sb_publishable_kJY2f227tgchyEJRo7Tv0Q_92QwO3F8";
 const SB_H={ "apikey":SB_KEY, "Authorization":"Bearer "+SB_KEY, "Content-Type":"application/json" };
 const REST=SB_URL+"/rest/v1/pisos";
 
-let data=[], rowIds=[], ciutatFilter='', zonaFilter='', favoritesFilter=false;
+let data=[], rowIds=[], nousSet=new Set(), ciutatFilter='', zonaFilter='', favoritesFilter=false;
 const openLinks=new Set();
 
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
@@ -229,7 +229,7 @@ async function sbSelect(){
   const PAGE=1000;
   let rows=[], from=0;
   while(true){
-    const r=await fetch(REST+"?select=*&order=id.asc&limit="+PAGE+"&offset="+from,{headers:SB_H});
+    const r=await fetch(REST+"?select=*&actiu=eq.true&descartat=is.false&order=creat_el.desc,id.desc&limit="+PAGE+"&offset="+from,{headers:SB_H});
     if(!r.ok) throw new Error("GET "+r.status+" "+await r.text());
     const batch=await r.json();
     rows=rows.concat(batch);
@@ -240,11 +240,13 @@ async function sbSelect(){
 }
 async function sbInsert(obj){ const r=await fetch(REST,{method:"POST",headers:Object.assign({},SB_H,{Prefer:"return=representation"}),body:JSON.stringify(obj)}); if(!r.ok) throw new Error("POST "+r.status+" "+await r.text()); return r.json(); }
 async function sbUpdate(id,obj){ const r=await fetch(REST+"?id=eq."+id,{method:"PATCH",headers:Object.assign({},SB_H,{Prefer:"return=representation"}),body:JSON.stringify(obj)}); if(!r.ok) throw new Error("PATCH "+r.status+" "+await r.text()); return r.json(); }
-async function sbDelete(id){ const r=await fetch(REST+"?id=eq."+id,{method:"DELETE",headers:SB_H}); if(!r.ok) throw new Error("DELETE "+r.status+" "+await r.text()); }
+// "Elimina" = descartar (no esborra): si s'esborrés, el scraper el tornaria a inserir l'endemà.
+async function sbDelete(id){ await sbUpdate(id,{descartat:true}); }
 
 let ft; function flash(m,bad){ const s=document.getElementById('saved'); s.textContent=m; s.style.color=bad?'var(--bad)':'var(--ok)'; clearTimeout(ft); ft=setTimeout(function(){s.textContent='';},2200); }
 
-async function loadFromDB(){ const rows=await sbSelect(); data=rows.map(fromDB); rowIds=rows.map(function(r){return r.id;}); }
+function actualitzaNous(rows){ const lim=Date.now()-48*3600*1000; nousSet=new Set(rows.filter(function(r){return r.creat_el&&new Date(r.creat_el).getTime()>lim;}).map(function(r){return r.id;})); }
+async function loadFromDB(){ const rows=await sbSelect(); data=rows.map(fromDB); rowIds=rows.map(function(r){return r.id;}); actualitzaNous(rows); }
 
 async function saveRow(ri){
   try{ await sbUpdate(rowIds[ri], toDB(data[ri])); flash('Desat'); }
@@ -272,6 +274,7 @@ function buildSummary(row,ri){
     +(row[M2_I]?'<span class="pill">'+esc(row[M2_I])+' m²</span>':'')
     +(row[HAB_I]?'<span class="pill">'+esc(row[HAB_I])+' hab</span>':'')
     +(ext?'<span class="pill yes">Exterior</span>':'<span class="pill">Sense ext.</span>')
+    +(nousSet.has(rowIds[ri])?'<span class="pill yes">Nou</span>':'')
     +(bi.label?'<span class="pill '+bi.pill+'">'+esc(bi.label)+'</span>':'')
     +'</span>';
 }
@@ -405,7 +408,7 @@ async function silentRefresh(){
   try{
     const rows=await sbSelect();
     const nd=rows.map(fromDB), ni=rows.map(function(r){return r.id;});
-    if(JSON.stringify(nd)!==JSON.stringify(data)){ data=nd; rowIds=ni; render(); renderStats(); }
+    if(JSON.stringify(nd)!==JSON.stringify(data)){ data=nd; rowIds=ni; actualitzaNous(rows); render(); renderStats(); }
     flash('Sincronitzat');
   }catch(e){}
 }

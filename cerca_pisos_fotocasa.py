@@ -146,9 +146,14 @@ HEADERS = {
 }
 
 # ------------------------------------------------------------------ Utils
+# Filtres aplicats pel servidor de Fotocasa (comprovat: redueix p.ex. Terrassa de
+# ~2.300 a ~1.400 resultats) i ordre per data de publicació (els nous primer).
+# parse_targeta() continua aplicant els criteris complets.
+FILTRE_URL = f"?maxPrice={PREU_SOSTRE_BAND}&minSurface={M2_MIN}&minRooms={HAB_MIN}&sortType=publicationDate"
+
 def url_pagina(base: str, k: int) -> str:
-    """Pàgina 1 = base; pàgina k = base + "/k"."""
-    return base if k == 1 else f"{base}/{k}"
+    """Pàgina 1 = base; pàgina k = base + "/k"; els filtres van al final."""
+    return (base if k == 1 else f"{base}/{k}") + FILTRE_URL
 
 def treu_json(html: str):
     """Extreu i parseja el bloc <script id="__initial_props__"> de la pàgina."""
@@ -229,23 +234,34 @@ def parse_targeta(item: dict, cfg: dict):
     }
 
 # ------------------------------------------------------------------ Barrido
-def barrer_zona(clau, max_pagines=15):
+def barrer_zona(clau, max_pagines=60):
     cfg = ZONES[clau]
     files, links_vistos, firmes = [], set(), set()
+    completa = True
     for k in range(1, max_pagines + 1):
         url = url_pagina(cfg["url"], k)
         try:
             r = requests.get(url, headers=HEADERS, timeout=25)
         except requests.RequestException as e:
+            completa = False
             print(f"  [pàg {k}] error de xarxa: {e}"); break
         if r.status_code != 200:
+            if k == 1 or r.status_code in (403, 429) or r.status_code >= 500:
+                completa = False
             print(f"  [pàg {k}] HTTP {r.status_code} — parem"); break
         data = treu_json(r.text)
         realEstates, total = (extreu_llistat(data) if data else (None, 0))
         if not realEstates:
+            if k == 1:
+                completa = False
+                print(f"::warning::{clau}: 0 anuncis a la pàg 1 (URL trencada o bloqueig?)")
             print(f"  [pàg {k}] sense anuncis (o JSON no trobat) — fi"); break
         nous = 0
         for item in realEstates:
+            # vist = surt al llistat, encara que no passi el filtre (evita falsos "retirats")
+            det = (item.get("detail") or {}).get("es-ES") or (item.get("detailWithParams") or {}).get("es-ES")
+            if det:
+                TOTS_LINKS.add("https://www.fotocasa.es" + det)
             fila = parse_targeta(item, cfg)
             if not fila:
                 continue
@@ -260,36 +276,81 @@ def barrer_zona(clau, max_pagines=15):
         if k * 30 >= total:
             break
         time.sleep(1.2)   # educats amb el servidor
+    else:
+        completa = False
+        print("  Avís: zona truncada pel límit de pàgines; no es desactiva res d'aquesta zona.")
+    if completa:
+        ZONES_OK.append((cfg["ciutat"], cfg["zona"]))
     return files
 
 def firmes_existents():
     """(ciutat, m2, preu) de totes les files ja desades a Supabase -- de
     qualsevol font (Habitaclia, Fotocasa...). Mateixa ciutat + mateixa
     superfície + mateix preu exacte és, a la pràctica, el mateix pis
-    anunciat per una altra agència/portal; s'evita duplicar-lo."""
+    anunciat per una altra agència/portal; s'evita duplicar-lo.
+    Retorna {(ciutat, m2, preu): link}, o None si no es pot llegir.
+    Pagina de 1000 en 1000 (PostgREST no en torna més per petició)."""
+    out, off = {}, 0
     try:
-        r = requests.get(REST + "?select=ciutat,m2,preu", headers=SB_HEADERS, timeout=30)
-        r.raise_for_status()
-        return {(row.get("ciutat"), row.get("m2"), row.get("preu")) for row in r.json()}
+        while True:
+            r = requests.get(REST + f"?select=ciutat,m2,preu,link&order=id.asc&limit=1000&offset={off}",
+                             headers=SB_HEADERS, timeout=30)
+            r.raise_for_status()
+            lot = r.json()
+            for row in lot:
+                out.setdefault((row.get("ciutat"), row.get("m2"), row.get("preu")), row.get("link"))
+            if len(lot) < 1000:
+                return out
+            off += 1000
     except requests.RequestException as e:
-        print(f"Avís: no s'ha pogut llegir Supabase per deduplicar entre fonts ({e}); es continua sense aquest filtre.")
-        return set()
+        print(f"Avís: no s'ha pogut llegir Supabase ({e}).")
+        return None
+
+# ------------------------------------------------- Seguiment d'anuncis actius
+APP_NOM = "Fotocasa"
+TOTS_LINKS = set()   # tots els enllaços vistos en aquesta execució
+ZONES_OK = []        # (ciutat, zona) escombrades senceres i sense errors
+
+def _rpc(nom, payload):
+    h = {k: v for k, v in SB_HEADERS.items() if k != "Prefer"}
+    try:
+        r = requests.post(f"{SUPABASE_URL}/rest/v1/rpc/{nom}", headers=h, json=payload, timeout=60)
+        if r.status_code in (200, 201):
+            return r.json()
+        print(f"Avís: {nom} ha fallat ({r.status_code}): {r.text[:200]} -- s'ha executat migracio_actiu.sql?")
+    except requests.RequestException as e:
+        print(f"Avís: {nom} ha fallat: {e}")
+    return None
+
+def marca_vistos(links):
+    """True només si TOTS els lots s'han marcat bé."""
+    ok = True
+    for i in range(0, len(links), 200):
+        if _rpc("marca_vistos", {"p_links": links[i:i + 200]}) is None:
+            ok = False
+    return ok
+
+def desactiva_antics(ciutat, zona, dies=10):
+    n = _rpc("desactiva_antics", {"p_app": APP_NOM, "p_ciutat": ciutat, "p_zona": zona, "p_dies": dies})
+    if n:
+        print(f"  {ciutat} / {zona}: {n} anuncis desactivats (fa >{dies} dies que no es veuen)")
 
 def inserir(files):
     if not files:
-        print("Res a inserir."); return
+        print("Res a inserir."); return True
     r = requests.post(REST + "?on_conflict=link", headers=SB_HEADERS, json=files, timeout=60)
     if r.status_code in (200, 201):
         print(f"Inserits/confirmats {len(r.json())} de {len(files)} enviats.")
-    else:
-        print(f"Error Supabase {r.status_code}: {r.text[:400]}")
+        return True
+    print(f"Error Supabase {r.status_code}: {r.text[:400]}")
+    return False
 
 # ------------------------------------------------------------------ Main
 def main():
     if len(sys.argv) < 2:
         sys.exit(f"Zones: {', '.join(ZONES)} | o 'totes'")
     clau = sys.argv[1]
-    max_p = int(sys.argv[2]) if len(sys.argv) > 2 else 15
+    max_p = int(sys.argv[2]) if len(sys.argv) > 2 else 60
     claus = list(ZONES) if clau == "totes" else [clau]
     total = []
     for c in claus:
@@ -300,12 +361,29 @@ def main():
     print(f"\nTotal candidats únics (dins d'aquesta execució): {len(total)}")
 
     existents = firmes_existents()
-    sense_duplicar = [f for f in total if (f["ciutat"], f["m2"], f["preu"]) not in existents]
+    if existents is None:
+        sys.exit("ERROR: no s'ha pogut llegir Supabase; no s'insereix ni es desactiva res.")
+    sense_duplicar = []
+    for f in total:
+        ja = existents.get((f["ciutat"], f["m2"], f["preu"]))
+        if ja:
+            TOTS_LINKS.add(ja)   # el pis ja desat (potser d'una altra font/URL) continua viu
+        else:
+            sense_duplicar.append(f)
     duplicats = len(total) - len(sense_duplicar)
     if duplicats:
-        print(f"Descartats {duplicats} per coincidir amb un pis ja existent a la BD (altra font).")
+        print(f"Descartats {duplicats} per coincidir amb un pis ja existent a la BD.")
 
-    inserir(sense_duplicar)
+    if not TOTS_LINKS:
+        sys.exit("ERROR: 0 anuncis llegits en totes les zones (bloqueig o canvi de web?).")
+    if marca_vistos(sorted(TOTS_LINKS)):
+        for _ciutat, _zona in ZONES_OK:
+            desactiva_antics(_ciutat, _zona)
+    else:
+        print("Avís: marca_vistos ha fallat; avui no es desactiva res.")
+
+    if not inserir(sense_duplicar):
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
